@@ -73,27 +73,31 @@ class CrunchApi private constructor() {
         return login(u, p)
     }
 
-    fun getBarcode(creds: UserCredentials): Result<Pair<String, ByteArray>> = try {
-        val base = (workingConfig ?: COMBOS[0]).baseUrl.trimEnd('/')
-        val resp = client.newCall(Request.Builder().url("$base/np/exerciser/${creds.uuid}/membership-barcode").get().build()).execute()
-        if (resp.code == 401) return Result.failure(SessionExpiredException())
-        val body = resp.body?.string() ?: return Result.failure(Exception("Empty"))
-        if (!resp.isSuccessful) return Result.failure(Exception("HTTP ${resp.code}"))
-        val json = JSONObject(body)
-        val barcode = json.optString("barcode", "")
-        if (barcode.isEmpty()) return Result.failure(Exception(json.optString("errorMessage", "No barcode")))
-        Result.success(Pair(barcode, ByteArray(0)))
-    } catch (e: SessionExpiredException) { throw e
-    } catch (e: Exception) { Result.failure(e) }
+    fun getBarcode(creds: UserCredentials): Result<Pair<String, ByteArray>> {
+        return try {
+            val base = (workingConfig ?: COMBOS[0]).baseUrl.trimEnd('/')
+            val resp = client.newCall(Request.Builder().url("$base/np/exerciser/${creds.uuid}/membership-barcode").get().build()).execute()
+            if (resp.code == 401) return Result.failure(SessionExpiredException())
+            val body = resp.body?.string() ?: return Result.failure(Exception("Empty"))
+            if (!resp.isSuccessful) return Result.failure(Exception("HTTP ${resp.code}"))
+            val json = JSONObject(body)
+            val barcode = json.optString("barcode", "")
+            if (barcode.isEmpty()) return Result.failure(Exception(json.optString("errorMessage", "No barcode")))
+            Result.success(Pair(barcode, ByteArray(0)))
+        } catch (e: SessionExpiredException) { throw e
+        } catch (e: Exception) { Result.failure(e) }
+    }
 
-    fun getGooglePayJwt(creds: UserCredentials): Result<String> = try {
-        val base = (workingConfig ?: COMBOS[0]).baseUrl.trimEnd('/')
-        val resp = client.newCall(Request.Builder().url("$base/np/exercisers/${creds.uuid}/google/pay/barcode?appVersion=1&backgroundColor=%23000000").get().build()).execute()
-        if (resp.code == 401) return Result.failure(SessionExpiredException())
-        val body = resp.body?.string() ?: return Result.failure(Exception("Empty"))
-        if (!resp.isSuccessful) return Result.failure(Exception("HTTP ${resp.code}"))
-        Result.success(body.trim().removeSurrounding("\""))
-    } catch (e: Exception) { Result.failure(e) }
+    fun getGooglePayJwt(creds: UserCredentials): Result<String> {
+        return try {
+            val base = (workingConfig ?: COMBOS[0]).baseUrl.trimEnd('/')
+            val resp = client.newCall(Request.Builder().url("$base/np/exercisers/${creds.uuid}/google/pay/barcode?appVersion=1&backgroundColor=%23000000").get().build()).execute()
+            if (resp.code == 401) return Result.failure(SessionExpiredException())
+            val body = resp.body?.string() ?: return Result.failure(Exception("Empty"))
+            if (!resp.isSuccessful) return Result.failure(Exception("HTTP ${resp.code}"))
+            Result.success(body.trim().removeSurrounding("\""))
+        } catch (e: Exception) { Result.failure(e) }
+    }
 
     private fun tryLogin(user: String, pass: String, cfg: ApiConfig): Result<LoginResponse> = try {
         val base = cfg.baseUrl.trimEnd('/')

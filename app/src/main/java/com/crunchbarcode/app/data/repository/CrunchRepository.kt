@@ -53,23 +53,22 @@ class CrunchRepository private constructor(ctx: Context) {
 
     fun loadBarcode(): Result<BarcodeResult> {
         val c = savedCredentials ?: return Result.failure(Exception("Not logged in"))
-        return try {
-            val result = api.getBarcode(c)
-            if (result.isFailure && result.exceptionOrNull() is SessionExpiredException) {
-                val relogin = api.relogin()
-                if (relogin.isSuccess) {
-                    val lr = relogin.getOrThrow()
-                    savedCredentials = c.copy(uuid = lr.uuid, sessionId = lr.sessionId)
-                    api.getBarcode(savedCredentials!!)
-                } else result
+        val result = api.getBarcode(c)
+        val finalResult = if (result.isFailure && result.exceptionOrNull() is SessionExpiredException) {
+            val relogin = api.relogin()
+            if (relogin.isSuccess) {
+                savedCredentials = c.copy(uuid = relogin.getOrThrow().uuid, sessionId = relogin.getOrThrow().sessionId)
+                api.getBarcode(savedCredentials!!)
             } else result
-        }.fold(
-            onSuccess = { (value, _) -> genBitmap(value).fold(
-                { bmp -> Result.success(BarcodeResult(value, bmp)) },
-                { Result.failure(it) }
-            )},
-            onFailure = { Result.failure(it) }
-        )
+        } else result
+
+        return if (finalResult.isSuccess) {
+            val (value, _) = finalResult.getOrThrow()
+            genBitmap(value).fold(
+                onSuccess = { bmp -> Result.success(BarcodeResult(value, bmp)) },
+                onFailure = { Result.failure(it) }
+            )
+        } else Result.failure(finalResult.exceptionOrNull() ?: Exception("Unknown"))
     }
 
     private fun genBitmap(value: String): Result<Bitmap> = try {
