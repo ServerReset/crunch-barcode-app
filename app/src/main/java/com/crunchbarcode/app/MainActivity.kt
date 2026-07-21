@@ -1,10 +1,9 @@
 package com.crunchbarcode.app
 
 import android.os.Bundle
-import android.view.WindowManager
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.fragment.app.FragmentActivity
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
@@ -28,7 +27,7 @@ import com.crunchbarcode.app.ui.screens.LoginScreen
 import com.crunchbarcode.app.ui.screens.LoginViewModel
 import com.crunchbarcode.app.ui.theme.CrunchBarcodeTheme
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
