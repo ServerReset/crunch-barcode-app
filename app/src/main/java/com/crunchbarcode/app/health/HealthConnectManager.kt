@@ -47,7 +47,7 @@ class HealthConnectManager(private val context: Context) {
     )
 
     fun getPermissionIntent(): Intent? = client?.let {
-        PermissionController.createRequestPermissionResultContract().createIntent(it, permissions)
+        PermissionController.createRequestPermissionResultContract().createIntent(context, permissions)
     }
 
     suspend fun hasPermissions(): Boolean = try {
