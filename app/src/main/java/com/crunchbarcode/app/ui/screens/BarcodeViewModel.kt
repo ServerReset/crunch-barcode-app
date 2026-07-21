@@ -35,7 +35,7 @@ data class BarcodeUiState(
     val memberFirstName: String? = null, val healthData: HealthData = HealthData(), val healthLoading: Boolean = false
 )
 
-class BarcodeViewModel(app: Application, private val repo: CrunchRepository) : ViewModel() {
+class BarcodeViewModel(private val app: Application, private val repo: CrunchRepository) : ViewModel() {
     private val _s = MutableStateFlow(BarcodeUiState()); val uiState = _s.asStateFlow()
     private val w = MultiFormatWriter()
     private val healthManager = HealthConnectManager(app)
@@ -57,7 +57,7 @@ class BarcodeViewModel(app: Application, private val repo: CrunchRepository) : V
         val b = Bitmap.createBitmap(mx.width, mx.height, Bitmap.Config.ARGB_8888)
         val px = IntArray(mx.width * mx.height); for (y in 0 until mx.height) for (x in 0 until mx.width) px[y * mx.width + x] = if (mx[x, y]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
         b.setPixels(px, 0, mx.width, 0, 0, mx.width, mx.height)
-        BarcodeWidgetProvider.pushBarcodeUpdate(application, b)
+        BarcodeWidgetProvider.pushBarcodeUpdate(app, b)
         _s.value = _s.value.copy(barcodeValue = value, barcodeBitmap = b, isLoading = false, error = null)
     } catch (e: Exception) { _s.value = _s.value.copy(isLoading = false, error = "Render failed: ${e.localizedMessage}") }}
 
@@ -73,7 +73,7 @@ class BarcodeViewModel(app: Application, private val repo: CrunchRepository) : V
     }}
 
     fun copyBarcodeToClipboard() { _s.value.barcodeValue?.let {
-        (application.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Crunch Barcode", it))
+        (app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Crunch Barcode", it))
         _s.value = _s.value.copy(justCopied = true); viewModelScope.launch { delay(2000); _s.value = _s.value.copy(justCopied = false) }
     }}
 
@@ -81,20 +81,20 @@ class BarcodeViewModel(app: Application, private val repo: CrunchRepository) : V
         withContext(Dispatchers.IO) { try {
             val cv = ContentValues().apply { put(MediaStore.Images.Media.DISPLAY_NAME, "CrunchBarcode_${System.currentTimeMillis()}.png"); put(MediaStore.Images.Media.MIME_TYPE, "image/png")
                 if (Build.VERSION.SDK_INT >= 29) { put(MediaStore.Images.Media.IS_PENDING, 1); put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/CrunchBarcode") } }
-            val uri = application.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv) ?: throw Exception("No URI")
-            application.contentResolver.openOutputStream(uri)?.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } ?: throw Exception("No stream")
-            if (Build.VERSION.SDK_INT >= 29) { cv.clear(); cv.put(MediaStore.Images.Media.IS_PENDING, 0); application.contentResolver.update(uri, cv, null, null) }
+            val uri = app.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv) ?: throw Exception("No URI")
+            app.contentResolver.openOutputStream(uri)?.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } ?: throw Exception("No stream")
+            if (Build.VERSION.SDK_INT >= 29) { cv.clear(); cv.put(MediaStore.Images.Media.IS_PENDING, 0); app.contentResolver.update(uri, cv, null, null) }
         } catch (e: Exception) { _s.value = _s.value.copy(error = "Save failed: ${e.localizedMessage}") }}
     } }}
 
     fun shareBarcode() { _s.value.barcodeBitmap?.let { bmp -> viewModelScope.launch { withContext(Dispatchers.IO) { try {
-        val f = File(application.cacheDir, "shared_barcodes").also { it.mkdirs() }; val file = File(f, "crunch_barcode.png")
+        val f = File(app.cacheDir, "shared_barcodes").also { it.mkdirs() }; val file = File(f, "crunch_barcode.png")
         FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        val uri = FileProvider.getUriForFile(application, "${application.packageName}.fileprovider", file)
-        application.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "image/png"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, "Share barcode").apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+        val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
+        app.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "image/png"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, "Share barcode").apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
     } catch (_: Exception) {} } } } }
 
-    fun trySamsungWallet() { try { application.startActivity(Intent(Intent.ACTION_VIEW).apply { data = Uri.parse("samsungwallet://addPass"); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) } catch (_: Exception) { shareBarcode() } }
+    fun trySamsungWallet() { try { app.startActivity(Intent(Intent.ACTION_VIEW).apply { data = Uri.parse("samsungwallet://addPass"); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) } catch (_: Exception) { shareBarcode() } }
 
     private fun checkForUpdate() { viewModelScope.launch {
         _s.value = _s.value.copy(isUpdateChecking = true)
@@ -105,17 +105,17 @@ class BarcodeViewModel(app: Application, private val repo: CrunchRepository) : V
     fun downloadAndInstall() { _s.value.update?.let { u -> viewModelScope.launch {
         _s.value = _s.value.copy(isDownloading = true, downloadProgress = 0f)
         withContext(Dispatchers.IO) { try {
-            val dir = File(application.cacheDir, "updates").also { it.mkdirs() }; dir.listFiles()?.forEach { it.delete() }; val file = File(dir, "crunch-barcode-update.apk")
+            val dir = File(app.cacheDir, "updates").also { it.mkdirs() }; dir.listFiles()?.forEach { it.delete() }; val file = File(dir, "crunch-barcode-update.apk")
             val conn = URL(u.downloadUrl).openConnection() as HttpURLConnection; conn.connectTimeout = 30000; conn.readTimeout = 30000; conn.connect()
             FileOutputStream(file).use { out -> val buf = ByteArray(8192); var r: Int; var t = 0L; val s = conn.contentLengthLong
                 while (conn.inputStream.read(buf).also { r = it } != -1) { out.write(buf, 0, r); t += r; if (s > 0) _s.value = _s.value.copy(downloadProgress = t.toFloat() / s.toFloat()) } }
             conn.inputStream.close()
-            Result.success(FileProvider.getUriForFile(application, "${application.packageName}.fileprovider", file))
+            Result.success(FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file))
         } catch (e: Exception) { Result.failure(e) }}.fold({ _s.value = _s.value.copy(isDownloading = false, installUri = it, installPrompt = true) },
             { _s.value = _s.value.copy(isDownloading = false, error = "Download: ${it.localizedMessage}") })
     } }}
 
-    fun launchInstall() { _s.value.installUri?.let { application.startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(it, "application/vnd.android.package-archive"); flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK; putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true) }) } }
+    fun launchInstall() { _s.value.installUri?.let { app.startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(it, "app/vnd.android.package-archive"); flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK; putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true) }) } }
     fun dismissInstallPrompt() { _s.value = _s.value.copy(installPrompt = false) }
     fun loadHealthData() { viewModelScope.launch { _s.value = _s.value.copy(healthLoading = true); _s.value = _s.value.copy(healthData = withContext(Dispatchers.IO) { healthManager.loadHealthData() }, healthLoading = false) } }
     fun getHealthPermissionIntent() = healthManager.getPermissionIntent()
