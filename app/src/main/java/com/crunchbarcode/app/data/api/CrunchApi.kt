@@ -13,7 +13,8 @@ class CrunchApi(baseUrl: String = BASE_URL) {
 
     companion object {
         const val BASE_URL = "https://crunch-fitness-container.netpulse.com"
-        private const val LOGIN = "/np/exerciser/login"
+        private const val LOGIN_NEW = "/np/exerciser/login"
+        private const val LOGIN_LEGACY = "/np/login"
         private const val BARCODE = "/np/exerciser/%s/membership-barcode"
         const val GOOGLE_PAY = "/np/exercisers/%s/google/pay/barcode"
     }
@@ -44,10 +45,13 @@ class CrunchApi(baseUrl: String = BASE_URL) {
         }
         .build()
 
-    fun login(username: String, password: String): Result<LoginResponse> = try {
+    fun login(username: String, password: String): Result<LoginResponse> = tryLogin(username, password, LOGIN_NEW)
+        .fold({ Result.success(it) }, { tryLogin(username, password, LOGIN_LEGACY) })
+
+    private fun tryLogin(username: String, password: String, path: String): Result<LoginResponse> = try {
         val resp = client.newCall(Request.Builder()
-            .url("$base$LOGIN")
-            .post(FormBody.Builder().add("login", username).add("password", password).build())
+            .url("$base$path")
+            .post(FormBody.Builder().add("username", username).add("password", password).build())
             .build()).execute()
         val code = resp.code; val body = resp.body?.string() ?: ""
         when {
