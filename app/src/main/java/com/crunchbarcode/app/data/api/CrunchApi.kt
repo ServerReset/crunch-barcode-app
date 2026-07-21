@@ -53,32 +53,35 @@ class CrunchApi(private val baseUrl: String = BASE_URL) {
             .post(FormBody.Builder().add("login", username).add("password", password).build())
             .build()
 
+        var responseBody = ""
+
         return try {
             val response = client.newCall(request).execute()
             val code = response.code
-            val body = response.body?.string() ?: ""
+            responseBody = response.body?.string() ?: ""
 
             if (code != 200) {
-                val msg = try { JSONObject(body).optString("message", "") } catch (_: Exception) { "" }
-                val cause = try { JSONObject(body).optString("cause", "") } catch (_: Exception) { "" }
-                val hint = if (msg.isNotEmpty()) msg else body.take(150)
+                val msg = try { JSONObject(responseBody).optString("message", "") } catch (_: Exception) { "" }
+                val cause = try { JSONObject(responseBody).optString("cause", "") } catch (_: Exception) { "" }
+                val hint = if (msg.isNotEmpty()) msg else responseBody.take(150)
                 return Result.failure(CrunchAuthException(code, msg, cause, hint))
             }
 
-            val json = JSONObject(body)
+            val json = JSONObject(responseBody)
             val sid = sessionId ?: ""
             val uuid = json.optString("uuid", "")
             if (uuid.isEmpty()) {
-                return Result.failure(Exception("Server response missing uuid. Body: ${body.take(200)}"))
+                return Result.failure(Exception("Bad response (no uuid): ${responseBody.take(200)}"))
             }
 
             Result.success(LoginResponse.fromJson(json, sid))
         } catch (e: CrunchAuthException) {
             Result.failure(e)
         } catch (e: IOException) {
-            Result.failure(Exception("Can't reach server: ${e.localizedMessage ?: "check your connection"}"))
+            Result.failure(Exception("Can't reach server: ${e.localizedMessage ?: "check connection"}"))
         } catch (e: Exception) {
-            Result.failure(Exception("Server response error: ${e.localizedMessage ?: body.take(200)}"))
+            val snippet = responseBody.take(200).ifEmpty { e.localizedMessage ?: "unknown" }
+            Result.failure(Exception("Server error: $snippet"))
         }
     }
 
