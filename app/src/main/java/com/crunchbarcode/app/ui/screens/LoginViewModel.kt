@@ -5,10 +5,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.crunchbarcode.app.data.api.CrunchAuthException
 import com.crunchbarcode.app.data.repository.CrunchRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class LoginUiState(
     val login: String = "",
@@ -59,7 +61,7 @@ class LoginViewModel(
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            val result = repository.login(state.login.trim(), state.password)
+            val result = withContext(Dispatchers.IO) { repository.login(state.login.trim(), state.password) }
             result.fold(
                 onSuccess = {
                     _uiState.value = _uiState.value.copy(isLoading = false, isLoggedIn = true)
