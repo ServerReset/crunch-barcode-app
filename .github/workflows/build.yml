@@ -32,31 +32,49 @@ jobs:
       - name: Build release APK
         run: ./gradlew assembleRelease
 
-      - name: Sign APK
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      - name: Sign APK (production key or debug fallback)
         env:
           SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          UNSIGNED_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
+          if [ ! -f "$UNSIGNED_APK" ]; then
+            echo "No unsigned APK found"
+            exit 1
+          fi
+
+          SIGNED_APK="app/build/outputs/apk/release/app-release.apk"
+
           if [ -n "$SIGNING_KEY" ]; then
             echo "$SIGNING_KEY" | base64 -d > keystore.jks
-            for apk in app/build/outputs/apk/release/*-unsigned.apk app/build/outputs/apk/release/*.apk; do
-              [ -f "$apk" ] || continue
-              if echo "$apk" | grep -qv 'signed'; then
-                jarsigner -verbose -keystore keystore.jks -storepass "$KEYSTORE_PASSWORD" \
-                  -keypass "$KEY_PASSWORD" "$apk" "$KEY_ALIAS"
-              fi
-            done
+            jarsigner -verbose -keystore keystore.jks \
+              -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" \
+              -digestalg SHA-256 -sigalg SHA256withRSA \
+              "$UNSIGNED_APK" "$KEY_ALIAS"
             rm -f keystore.jks
+          else
+            echo "No signing key secret set. Signing with ephemeral debug key..."
+            keytool -genkey -v -keystore debug.keystore -alias debug \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass android -keypass android \
+              -dname "CN=Debug, OU=Dev, O=CrunchBarcode, L=City, S=State, C=US"
+            jarsigner -verbose -keystore debug.keystore \
+              -storepass android -keypass android \
+              -digestalg SHA-256 -sigalg SHA256withRSA \
+              "$UNSIGNED_APK" debug
+            rm -f debug.keystore
           fi
+
+          cp "$UNSIGNED_APK" "$SIGNED_APK"
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: crunch-barcode-apk
           path: app/build/outputs/apk/release/*.apk
+          compression-level: 0
 
   release:
     needs: build
@@ -82,8 +100,9 @@ jobs:
 
             ### How to install
             1. Download the APK file below
-            2. Enable "Install from unknown sources" in Android settings
-            3. Open the APK and install
+            2. Open it on your Android device
+            3. If prompted to scan the app, tap **More Details** → **Install Anyway**
+            4. Confirm with your biometrics or device PIN
           files: |
             *.apk
           draft: false
