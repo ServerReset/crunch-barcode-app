@@ -10,6 +10,7 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -45,43 +46,69 @@ class CrunchApi(private val baseUrl: String = BASE_URL) {
                 .addHeader("User-Agent", "CrunchBarcode/1.0")
                 .build())
         }
+        .addInterceptor(HttpLoggingInterceptor { msg ->
+            if (msg.contains("HTTP FAILED") || msg.contains("HTTP ") || msg.contains("Exception"))
+                android.util.Log.w("CrunchAPI", msg)
+        }.apply {
+            level = HttpLoggingInterceptor.Level.BASIC
+        })
         .build()
 
     fun login(username: String, password: String): Result<LoginResponse> {
-        val request = Request.Builder()
-            .url("$baseUrl$LOGIN_PATH")
-            .post(FormBody.Builder().add("login", username).add("password", password).build())
+        val url = "$baseUrl$LOGIN_PATH"
+        val formBody = FormBody.Builder()
+            .add("login", username)
+            .add("password", password)
             .build()
 
-        var responseBody = ""
+        val request = Request.Builder()
+            .url(url)
+            .post(formBody)
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .build()
 
-        return try {
+        try {
             val response = client.newCall(request).execute()
             val code = response.code
-            responseBody = response.body?.string() ?: ""
+            val body = response.body?.string() ?: ""
 
-            if (code != 200) {
-                val msg = try { JSONObject(responseBody).optString("message", "") } catch (_: Exception) { "" }
-                val cause = try { JSONObject(responseBody).optString("cause", "") } catch (_: Exception) { "" }
-                val hint = if (msg.isNotEmpty()) msg else responseBody.take(150)
-                return Result.failure(CrunchAuthException(code, msg, cause, hint))
+            android.util.Log.i("CrunchAPI", "Login response $code: ${body.take(300)}")
+
+            return when {
+                code == 200 -> {
+                    val json = try { JSONObject(body) } catch (e: Exception) {
+                        return Result.failure(Exception("Bad JSON (HTTP $code): ${body.take(200)}"))
+                    }
+                    val uuid = json.optString("uuid", "")
+                    if (uuid.isEmpty()) {
+                        return Result.failure(Exception("No uuid in response (HTTP $code): ${body.take(200)}"))
+                    }
+                    val sid = sessionId ?: ""
+                    Result.success(LoginResponse.fromJson(json, sid))
+                }
+                code == 401 -> {
+                    val msg = try { JSONObject(body).optString("message", "") } catch (_: Exception) { "" }
+                    val cause = try { JSONObject(body).optString("cause", "") } catch (_: Exception) { "" }
+                    val desc = if (msg.isNotEmpty()) msg else body.take(150)
+                    Result.failure(CrunchAuthException(code, msg, cause, desc))
+                }
+                code == 403 -> {
+                    Result.failure(CrunchAuthException(code, "Migration required", "", body.take(150)))
+                }
+                code == 400 -> {
+                    Result.failure(CrunchAuthException(code, "Bad request", "", body.take(150)))
+                }
+                else -> {
+                    Result.failure(CrunchAuthException(code, "Unexpected response", "", body.take(200)))
+                }
             }
-
-            val json = JSONObject(responseBody)
-            val sid = sessionId ?: ""
-            val uuid = json.optString("uuid", "")
-            if (uuid.isEmpty()) {
-                return Result.failure(Exception("Bad response (no uuid): ${responseBody.take(200)}"))
-            }
-
-            Result.success(LoginResponse.fromJson(json, sid))
-        } catch (e: CrunchAuthException) {
-            Result.failure(e)
         } catch (e: IOException) {
-            Result.failure(Exception("Can't reach server: ${e.localizedMessage ?: "check connection"}"))
+            android.util.Log.e("CrunchAPI", "IO error: ${e.message}", e)
+            Result.failure(Exception("Network error: ${e.message ?: "could not reach server"}"))
         } catch (e: Exception) {
-            val snippet = responseBody.take(200).ifEmpty { e.localizedMessage ?: "unknown" }
-            Result.failure(Exception("Server error: $snippet"))
+            android.util.Log.e("CrunchAPI", "Unexpected error: ${e.message}", e)
+            Result.failure(Exception("Error: ${e.message ?: e.javaClass.simpleName}"))
         }
     }
 
@@ -121,4 +148,4 @@ class CrunchAuthException(
     val apiMessage: String,
     val apiCause: String,
     val hint: String = ""
-) : Exception("Server returned $httpCode: ${apiMessage.ifEmpty { hint.take(100) }}")
+) : Exception("$httpCode: ${apiMessage.ifEmpty { hint.take(100) }}")
