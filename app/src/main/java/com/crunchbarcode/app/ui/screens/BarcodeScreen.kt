@@ -129,15 +129,6 @@ private fun ControlsRow(s: BarcodeUiState, vm: BarcodeViewModel) {
                     label = { Text("${s.countdownSeconds / 60}m ${s.countdownSeconds % 60}s", style = MaterialTheme.typography.labelSmall, color = if (urgent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) })
             }
         }
-        s.lastRefreshed?.let { t ->
-            Text("Updated $t", style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())
-        }
-                val urgent = s.countdownSeconds < 60
-                SuggestionChip(onClick = {}, colors = SuggestionChipDefaults.suggestionChipColors(containerColor = if (urgent) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant),
-                    label = { Text("${s.countdownSeconds / 60}m ${s.countdownSeconds % 60}s", style = MaterialTheme.typography.labelSmall, color = if (urgent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) })
-            }
-        }
         val lastRef = s.lastRefreshed
         if (lastRef != null) {
             Text("Updated $lastRef", style = MaterialTheme.typography.labelSmall,
