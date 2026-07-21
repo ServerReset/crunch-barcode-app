@@ -26,12 +26,9 @@ data class LoginUiState(
     val showServerSettings: Boolean = false
 )
 
-class LoginViewModel(
-    private val app: Application,
-    private val repo: CrunchRepository
-) : ViewModel() {
+class LoginViewModel(app: Application, private val repo: CrunchRepository) : ViewModel() {
 
-    private val _s = MutableStateFlow(LoginUiState()); val uiState: StateFlow<LoginUiState> = _s.asStateFlow()
+    private val _s = MutableStateFlow(LoginUiState()); val uiState = _s.asStateFlow()
     private val prefs = app.getSharedPreferences("login_prefs", Context.MODE_PRIVATE)
 
     init {
@@ -46,58 +43,49 @@ class LoginViewModel(
     fun onServerUrlChanged(v: String) { _s.value = _s.value.copy(serverUrl = v, error = null) }
     fun toggleServerSettings() { _s.value = _s.value.copy(showServerSettings = !_s.value.showServerSettings) }
 
-    fun testConnection() {
-        viewModelScope.launch {
-            _s.value = _s.value.copy(isTesting = true, error = null)
-            val url = _s.value.serverUrl.trimEnd('/')
-            val result = withContext(Dispatchers.IO) {
-                try {
-                    val conn = URL("$url/np/login").openConnection() as HttpsURLConnection
-                    conn.requestMethod = "POST"
-                    conn.setRequestProperty("Accept", "application/json")
-                    conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                    conn.setRequestProperty("X-NP-API-Version", "1.5")
-                    conn.doOutput = true; conn.connectTimeout = 10000; conn.readTimeout = 10000
-                    conn.connect()
-                    val code = conn.responseCode
-                    "Server responded (HTTP $code)"
-                } catch (e: Exception) {
-                    "Failed: ${e.localizedMessage ?: e.javaClass.simpleName}"
-                }
-            }
-            _s.value = _s.value.copy(isTesting = false, error = result)
-        }
-    }
+    fun testConnection() { viewModelScope.launch {
+        _s.value = _s.value.copy(isTesting = true, error = null)
+        val url = _s.value.serverUrl.trimEnd('/')
+        val result = withContext(Dispatchers.IO) { try {
+            val conn = URL("$url/np/login").openConnection() as HttpsURLConnection
+            conn.requestMethod = "POST"; conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            conn.setRequestProperty("X-NP-API-Version", "1.5"); conn.doOutput = true
+            conn.connectTimeout = 8000; conn.readTimeout = 8000; conn.connect()
+            "Server: HTTP ${conn.responseCode}"
+        } catch (e: Exception) { "Failed: ${e.localizedMessage ?: e.javaClass.simpleName}" }}
+        _s.value = _s.value.copy(isTesting = false, error = "Test result: $result")
+    }}
 
     fun login() {
         val s = _s.value
         if (s.login.isBlank()) { _s.value = s.copy(error = "Enter your email or member ID"); return }
         if (s.password.isBlank()) { _s.value = s.copy(error = "Enter your password"); return }
 
-        val url = s.serverUrl.trim().trimEnd('/')
-        prefs.edit().putString("server_url", url).apply()
+        prefs.edit().putString("server_url", s.serverUrl.trimEnd('/')).apply()
 
         viewModelScope.launch {
             _s.value = _s.value.copy(isLoading = true, error = null)
-            val result = withContext(Dispatchers.IO) { repo.login(s.login.trim(), s.password, url) }
+            val result = withContext(Dispatchers.IO) { repo.login(s.login.trim(), s.password) }
             result.fold(
                 onSuccess = { _s.value = _s.value.copy(isLoading = false, isLoggedIn = true) },
                 onFailure = { e ->
                     val msg = when (e) {
-                        is CrunchAuthException -> when {
-                            e.httpCode == 401 && e.apiCause == "loginFailureAttemptsExceeded" ->
-                                "Too many attempts. Wait 15-30 min and try again."
-                            e.httpCode == 401 && e.apiCause == "userAccountTemporarilyLocked" ->
-                                "Account locked. Wait a few minutes."
-                            e.httpCode == 401 -> "Invalid email or password."
-                            e.httpCode == 400 -> "Check your information and try again."
-                            e.httpCode == 403 -> "Account requires migration. Contact Crunch support."
-                            e.httpCode == 404 -> "Account not found. Wrong server URL?"
-                            else -> "Server error (${e.httpCode})"
+                        is CrunchAuthException -> {
+                            val hint = when {
+                                e.httpCode == 401 && e.apiCause.contains("locked", true) ->
+                                    "Account locked. Wait 15-30 min."
+                                e.httpCode == 401 -> "Invalid email or password. Try a different server URL (tap Server)."
+                                e.httpCode == 400 -> "Check your information."
+                                e.httpCode == 403 -> "Account needs migration. Contact Crunch."
+                                e.httpCode == 404 -> "Wrong server URL. Try another preset."
+                                else -> "Server: HTTP ${e.httpCode}. Try a different server URL."
+                            }
+                            "$hint (${e.apiMessage.take(60)})"
                         }
-                        is java.net.UnknownHostException -> "Can't reach server. Check URL and network."
-                        is java.net.SocketTimeoutException -> "Connection timed out. Wrong server URL?"
-                        else -> e.localizedMessage ?: "Login failed. Try a different server URL."
+                        is java.net.UnknownHostException -> "Server not found. Wrong URL?"
+                        is java.net.SocketTimeoutException -> "Server timed out. Wrong URL?"
+                        else -> e.localizedMessage ?: "Failed. Try a different server URL."
                     }
                     _s.value = _s.value.copy(isLoading = false, error = msg)
                 }

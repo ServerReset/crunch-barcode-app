@@ -9,23 +9,25 @@ import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
-class CrunchApi(baseUrl: String = BASE_URL) {
+data class ApiConfig(val baseUrl: String, val path: String, val userKey: String)
+
+class CrunchApi {
 
     companion object {
         const val BASE_URL = "https://crunch-fitness-container.netpulse.com"
-        private const val LOGIN_NEW = "/np/exerciser/login"
-        private const val LOGIN_LEGACY = "/np/login"
-        private const val BARCODE = "/np/exerciser/%s/membership-barcode"
-        const val GOOGLE_PAY = "/np/exercisers/%s/google/pay/barcode"
+        val COMBOS = listOf(
+            ApiConfig(BASE_URL, "/np/login", "login"),
+            ApiConfig(BASE_URL, "/np/exerciser/login", "username"),
+            ApiConfig("https://vollgas.netpulse.com", "/np/login", "login"),
+            ApiConfig("https://vollgas.netpulse.com", "/np/exerciser/login", "username"),
+            ApiConfig("https://api.netpulse.com", "/np/login", "login"),
+            ApiConfig("https://mobile-api.int.api.egym.com", "/np/login", "login"),
+        )
     }
 
-    private var base = baseUrl.trimEnd('/')
-
     private val cookieStore = mutableMapOf<String, List<Cookie>>()
-    var sessionId: String? = null; private set
-
     private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(20, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS)
         .cookieJar(object : CookieJar {
             override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
                 cookieStore[url.host] = cookies
@@ -34,57 +36,62 @@ class CrunchApi(baseUrl: String = BASE_URL) {
             override fun loadForRequest(url: HttpUrl) = cookieStore[url.host] ?: emptyList()
         })
         .addInterceptor { chain ->
-            val r = chain.request().newBuilder()
+            chain.proceed(chain.request().newBuilder()
                 .addHeader("Accept", "application/json")
-                .addHeader("User-Agent", "CrunchBarcode/1.0")
                 .addHeader("X-NP-API-Version", "1.5")
                 .addHeader("X-NP-APP-Version", "1")
                 .addHeader("X-NP-User-Agent", "clientType=MOBILE_DEVICE; devicePlatform=ANDROID; deviceUid=${UUID.randomUUID()}::emulator; applicationName=Crunch; applicationVersion=5.15.2; applicationVersionCode=559")
-                .build()
-            chain.proceed(r)
+                .build())
         }
         .build()
 
-    fun login(username: String, password: String): Result<LoginResponse> {
-        val legacy = tryLogin(username, password, LOGIN_LEGACY, "login")
-        if (legacy.isSuccess) return legacy
-        val modern = tryLogin(username, password, LOGIN_NEW, "username")
-        if (modern.isSuccess) return modern
-        return legacy
+    var sessionId: String? = null; private set
+    var workingConfig: ApiConfig? = null; private set
+
+    fun login(user: String, pass: String): Result<LoginResponse> {
+        val cached = workingConfig
+        if (cached != null) {
+            val r = tryLogin(user, pass, cached)
+            if (r.isSuccess) return r
+        }
+        for (cfg in COMBOS) {
+            if (cfg == cached) continue
+            val r = tryLogin(user, pass, cfg)
+            if (r.isSuccess) { workingConfig = cfg; return r }
+        }
+        return tryLogin(user, pass, ApiConfig(BASE_URL, "/np/login", "login"))
     }
 
-    private fun tryLogin(username: String, password: String, path: String, userKey: String): Result<LoginResponse> = try {
+    private fun tryLogin(user: String, pass: String, cfg: ApiConfig): Result<LoginResponse> = try {
         val resp = client.newCall(Request.Builder()
-            .url("$base$path")
-            .post(FormBody.Builder().add(userKey, username).add("password", password).build())
+            .url("${cfg.baseUrl.trimEnd('/')}${cfg.path}")
+            .post(FormBody.Builder().add(cfg.userKey, user).add("password", pass).build())
             .build()).execute()
         val code = resp.code; val body = resp.body?.string() ?: ""
         when {
             code == 200 -> JSONObject(body).let { json ->
                 val uuid = json.optString("uuid", "")
-                if (uuid.isEmpty()) Result.failure(Exception("Bad response: ${body.take(200)}"))
+                if (uuid.isEmpty()) Result.failure(Exception("Missing uuid"))
                 else Result.success(LoginResponse.fromJson(json, sessionId ?: ""))
             }
             code == 401 -> {
                 val msg = try { JSONObject(body).optString("message", "") } catch (_: Exception) { "" }
                 val cause = try { JSONObject(body).optString("cause", "") } catch (_: Exception) { "" }
-                Result.failure(CrunchAuthException(code, msg, cause, body.take(150)))
+                Result.failure(CrunchAuthException(code, msg, cause))
             }
-            else -> Result.failure(CrunchAuthException(code, "", "", body.take(200)))
+            else -> Result.failure(CrunchAuthException(code, "", ""))
         }
-    } catch (e: IOException) { Result.failure(Exception("Network error: ${e.message}"))
-    } catch (e: Exception) { Result.failure(Exception("Error: ${e.message ?: e.javaClass.simpleName}")) }
+    } catch (_: Exception) { Result.failure(Exception("Connection failed")) }
 
-    fun getBarcode(c: UserCredentials) = apiGet(String.format(BARCODE, c.uuid)) { BarcodeResponse.fromJson(JSONObject(it)) }
-    fun getGooglePayJwt(c: UserCredentials) = apiGet("${String.format(GOOGLE_PAY, c.uuid)}?appVersion=1&backgroundColor=%23000000") { it.trim().removeSurrounding("\"") }
+    fun getBarcode(c: UserCredentials) = apiGet("/np/exerciser/${c.uuid}/membership-barcode") { BarcodeResponse.fromJson(JSONObject(it)) }
+    fun getGooglePayJwt(c: UserCredentials) = apiGet("/np/exercisers/${c.uuid}/google/pay/barcode?appVersion=1&backgroundColor=%23000000") { it.trim().removeSurrounding("\"") }
 
     private inline fun <T> apiGet(path: String, crossinline parse: (String) -> T): Result<T> = try {
-        val resp = client.newCall(Request.Builder().url("$base$path").get().build()).execute()
+        val resp = client.newCall(Request.Builder().url("${(workingConfig ?: COMBOS[0]).baseUrl.trimEnd('/')}$path").get().build()).execute()
         val body = resp.body?.string() ?: ""
-        if (!resp.isSuccessful) Result.failure(IOException("$path failed (${resp.code})"))
+        if (!resp.isSuccessful) Result.failure(IOException("HTTP ${resp.code}"))
         else Result.success(parse(body))
     } catch (e: Exception) { Result.failure(e) }
 }
 
-class CrunchAuthException(val httpCode: Int, val apiMessage: String, val apiCause: String, val hint: String = ""
-) : Exception("$httpCode: ${apiMessage.ifEmpty { hint.take(100) }}")
+class CrunchAuthException(val httpCode: Int, val apiMessage: String, val apiCause: String) : Exception("$httpCode: ${apiMessage.take(100)}")
