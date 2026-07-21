@@ -68,17 +68,17 @@ class LoginViewModel(
                     val msg = when (e) {
                         is CrunchAuthException -> when {
                             e.httpCode == 401 && e.apiCause == "loginFailureAttemptsExceeded" ->
-                                "Account temporarily locked due to too many attempts. Try again later."
+                                "Account locked. Too many failed attempts. Try again later."
                             e.httpCode == 401 && e.apiCause == "userAccountTemporarilyLocked" ->
-                                "Account locked. Please wait before trying again."
-                            e.httpCode == 401 -> "Invalid email or password. Please try again."
+                                "Account temporarily locked. Please wait."
+                            e.httpCode == 401 -> "Invalid email or password."
                             e.httpCode == 400 -> "Please check your information and try again."
-                            e.httpCode == 403 -> "Account requires migration. Please contact support."
+                            e.httpCode == 403 -> "Account requires migration. Contact support."
                             else -> "Login failed (${e.httpCode}): ${e.apiMessage}"
                         }
-                        is java.net.UnknownHostException -> "No internet connection. Check your network."
-                        is java.net.SocketTimeoutException -> "Connection timed out. Please try again."
-                        else -> e.localizedMessage ?: "An unexpected error occurred"
+                        is java.net.UnknownHostException -> "No internet connection."
+                        is java.net.SocketTimeoutException -> "Connection timed out."
+                        else -> e.localizedMessage ?: "Login failed. Please check your credentials and try again."
                     }
                     _uiState.value = _uiState.value.copy(isLoading = false, error = msg)
                 }
