@@ -1,9 +1,12 @@
 package com.crunchbarcode.app.ui.screens
 
+import android.app.Application
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.crunchbarcode.app.data.api.CrunchAuthException
+import com.crunchbarcode.app.data.api.CrunchApi
 import com.crunchbarcode.app.data.repository.CrunchRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,6 +14,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.URL
 
 data class LoginUiState(
     val login: String = "",
@@ -18,17 +23,27 @@ data class LoginUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val isLoggedIn: Boolean = false,
-    val isPasswordVisible: Boolean = false
+    val isPasswordVisible: Boolean = false,
+    val serverUrl: String = CrunchApi.BASE_URL,
+    val showServerSettings: Boolean = false,
+    val isResolving: Boolean = false
 )
 
 class LoginViewModel(
+    private val application: Application,
     private val repository: CrunchRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LoginUiState())
     val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
 
+    private val prefs = application.getSharedPreferences("login_prefs", Context.MODE_PRIVATE)
+
     init {
+        val savedUrl = prefs.getString("server_url", CrunchApi.BASE_URL) ?: CrunchApi.BASE_URL
+        if (savedUrl != CrunchApi.BASE_URL) {
+            _uiState.value = _uiState.value.copy(serverUrl = savedUrl)
+        }
         if (repository.isLoggedIn) {
             _uiState.value = _uiState.value.copy(isLoggedIn = true)
         }
@@ -43,9 +58,46 @@ class LoginViewModel(
     }
 
     fun onPasswordVisibilityToggle() {
-        _uiState.value = _uiState.value.copy(
-            isPasswordVisible = !_uiState.value.isPasswordVisible
-        )
+        _uiState.value = _uiState.value.copy(isPasswordVisible = !_uiState.value.isPasswordVisible)
+    }
+
+    fun onServerUrlChanged(value: String) {
+        _uiState.value = _uiState.value.copy(serverUrl = value, error = null)
+    }
+
+    fun toggleServerSettings() {
+        _uiState.value = _uiState.value.copy(showServerSettings = !_uiState.value.showServerSettings)
+    }
+
+    fun resolveRegion(keyword: String) {
+        if (keyword.isBlank()) return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isResolving = true, error = null)
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val base = _uiState.value.serverUrl
+                    val url = "$base/np/nfa/resolveContainer?keyword=${java.net.URLEncoder.encode(keyword, "UTF-8")}&containerAppVersion=559"
+                    val conn = URL(url).openConnection() as java.net.HttpURLConnection
+                    conn.setRequestProperty("Accept", "application/json")
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 15000
+                    val code = conn.responseCode
+                    if (code == 200) {
+                        val body = conn.inputStream.bufferedReader().readText()
+                        val json = JSONObject(body)
+                        val brandId = json.optString("brandIdentifier", "")
+                        val resourceType = json.optString("resourceType", "prod")
+                        "brandId=$brandId&resourceType=$resourceType"
+                    } else {
+                        "Server returned HTTP $code"
+                    }
+                } catch (e: Exception) {
+                    e.localizedMessage ?: "Connection failed"
+                }
+            }
+            _uiState.value = _uiState.value.copy(isResolving = false,
+                error = "Resolve result: $result")
+        }
     }
 
     fun login() {
@@ -59,9 +111,12 @@ class LoginViewModel(
             return
         }
 
+        val url = state.serverUrl.trim().trimEnd('/')
+        prefs.edit().putString("server_url", url).apply()
+
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            val result = withContext(Dispatchers.IO) { repository.login(state.login.trim(), state.password) }
+            val result = withContext(Dispatchers.IO) { repository.login(state.login.trim(), state.password, url) }
             result.fold(
                 onSuccess = {
                     _uiState.value = _uiState.value.copy(isLoading = false, isLoggedIn = true)
@@ -80,7 +135,7 @@ class LoginViewModel(
                         }
                         is java.net.UnknownHostException -> "No internet connection."
                         is java.net.SocketTimeoutException -> "Connection timed out."
-                        else -> e.localizedMessage ?: "Login failed. Please check your credentials and try again."
+                        else -> e.localizedMessage ?: "Login failed. Check your server URL or credentials."
                     }
                     _uiState.value = _uiState.value.copy(isLoading = false, error = msg)
                 }
@@ -88,10 +143,9 @@ class LoginViewModel(
         }
     }
 
-    class Factory(private val repository: CrunchRepository) : ViewModelProvider.Factory {
+    class Factory(private val application: Application, private val repository: CrunchRepository) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return LoginViewModel(repository) as T
-        }
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            LoginViewModel(application, repository) as T
     }
 }

@@ -7,6 +7,7 @@ import androidx.security.crypto.MasterKey
 import com.crunchbarcode.app.data.api.CrunchApi
 import com.crunchbarcode.app.data.api.CrunchAuthException
 import com.crunchbarcode.app.data.model.BarcodeResponse
+import com.crunchbarcode.app.data.model.BarcodeResponse
 import com.crunchbarcode.app.data.model.LoginResponse
 import com.crunchbarcode.app.data.model.UserCredentials
 
@@ -54,7 +55,8 @@ class CrunchRepository private constructor(context: Context) {
 
     val isLoggedIn: Boolean get() = savedCredentials != null
 
-    fun login(username: String, password: String): Result<LoginResponse> {
+    fun login(username: String, password: String, serverUrl: String = CrunchApi.BASE_URL): Result<LoginResponse> {
+        val api = if (serverUrl != CrunchApi.BASE_URL) CrunchApi(serverUrl) else this.api
         val result = api.login(username, password)
         if (result.isSuccess) {
             val loginResp = result.getOrThrow()

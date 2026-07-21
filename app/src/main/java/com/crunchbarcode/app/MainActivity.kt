@@ -60,7 +60,7 @@ class MainActivity : FragmentActivity() {
                         NavHost(navController = navController, startDestination = "login") {
                             composable("login") {
                                 val loginVm: LoginViewModel = viewModel(
-                                    factory = LoginViewModel.Factory(app.repository)
+                                    factory = LoginViewModel.Factory(application, app.repository)
                                 )
                                 LoginScreen(
                                     viewModel = loginVm,

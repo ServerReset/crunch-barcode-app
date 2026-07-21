@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.crunchbarcode.app.data.api.CrunchApi
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -147,9 +148,41 @@ fun LoginScreen(
                     }
                 }
 
-                Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(8.dp))
 
-                Button(
+            TextButton(onClick = { viewModel.toggleServerSettings() },
+                modifier = Modifier.align(Alignment.End)) {
+                Icon(if (state.showServerSettings) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    null, Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Server", style = MaterialTheme.typography.labelSmall)
+            }
+
+            AnimatedVisibility(visible = state.showServerSettings,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()) {
+                Column {
+                    OutlinedTextField(
+                        value = state.serverUrl,
+                        onValueChange = viewModel::onServerUrlChanged,
+                        label = { Text("Server URL") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        supportingText = {
+                            Text("Default: ${CrunchApi.BASE_URL}", style = MaterialTheme.typography.labelSmall)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (state.isResolving) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Button(
                     onClick = { focusManager.clearFocus(); viewModel.login() },
                     enabled = !state.isLoading,
                     modifier = Modifier.fillMaxWidth().height(54.dp),
