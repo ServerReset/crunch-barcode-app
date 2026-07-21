@@ -45,13 +45,18 @@ class CrunchApi(baseUrl: String = BASE_URL) {
         }
         .build()
 
-    fun login(username: String, password: String): Result<LoginResponse> = tryLogin(username, password, LOGIN_NEW)
-        .fold({ Result.success(it) }, { tryLogin(username, password, LOGIN_LEGACY) })
+    fun login(username: String, password: String): Result<LoginResponse> {
+        val legacy = tryLogin(username, password, LOGIN_LEGACY, "login")
+        if (legacy.isSuccess) return legacy
+        val modern = tryLogin(username, password, LOGIN_NEW, "username")
+        if (modern.isSuccess) return modern
+        return legacy
+    }
 
-    private fun tryLogin(username: String, password: String, path: String): Result<LoginResponse> = try {
+    private fun tryLogin(username: String, password: String, path: String, userKey: String): Result<LoginResponse> = try {
         val resp = client.newCall(Request.Builder()
             .url("$base$path")
-            .post(FormBody.Builder().add("username", username).add("password", password).build())
+            .post(FormBody.Builder().add(userKey, username).add("password", password).build())
             .build()).execute()
         val code = resp.code; val body = resp.body?.string() ?: ""
         when {
