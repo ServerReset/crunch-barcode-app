@@ -75,33 +75,27 @@ class CrunchApi(private val baseUrl: String = BASE_URL) {
 
             android.util.Log.i("CrunchAPI", "Login response $code: ${body.take(300)}")
 
-            return when {
-                code == 200 -> {
-                    val json = try { JSONObject(body) } catch (e: Exception) {
-                        return Result.failure(Exception("Bad JSON (HTTP $code): ${body.take(200)}"))
-                    }
-                    val uuid = json.optString("uuid", "")
-                    if (uuid.isEmpty()) {
-                        return Result.failure(Exception("No uuid in response (HTTP $code): ${body.take(200)}"))
-                    }
-                    val sid = sessionId ?: ""
-                    Result.success(LoginResponse.fromJson(json, sid))
+            if (code == 200) {
+                val json = try { JSONObject(body) } catch (e: Exception) {
+                    return Result.failure(Exception("Bad JSON (HTTP $code): ${body.take(200)}"))
                 }
-                code == 401 -> {
-                    val msg = try { JSONObject(body).optString("message", "") } catch (_: Exception) { "" }
-                    val cause = try { JSONObject(body).optString("cause", "") } catch (_: Exception) { "" }
-                    val desc = if (msg.isNotEmpty()) msg else body.take(150)
-                    Result.failure(CrunchAuthException(code, msg, cause, desc))
+                val uuid = json.optString("uuid", "")
+                if (uuid.isEmpty()) {
+                    return Result.failure(Exception("No uuid in response (HTTP $code): ${body.take(200)}"))
                 }
-                code == 403 -> {
-                    Result.failure(CrunchAuthException(code, "Migration required", "", body.take(150)))
-                }
-                code == 400 -> {
-                    Result.failure(CrunchAuthException(code, "Bad request", "", body.take(150)))
-                }
-                else -> {
-                    Result.failure(CrunchAuthException(code, "Unexpected response", "", body.take(200)))
-                }
+                val sid = sessionId ?: ""
+                return Result.success(LoginResponse.fromJson(json, sid))
+            } else if (code == 401) {
+                val msg = try { JSONObject(body).optString("message", "") } catch (_: Exception) { "" }
+                val cause = try { JSONObject(body).optString("cause", "") } catch (_: Exception) { "" }
+                val desc = if (msg.isNotEmpty()) msg else body.take(150)
+                return Result.failure(CrunchAuthException(code, msg, cause, desc))
+            } else if (code == 403) {
+                return Result.failure(CrunchAuthException(code, "Migration required", "", body.take(150)))
+            } else if (code == 400) {
+                return Result.failure(CrunchAuthException(code, "Bad request", "", body.take(150)))
+            } else {
+                return Result.failure(CrunchAuthException(code, "Unexpected response", "", body.take(200)))
             }
         } catch (e: IOException) {
             android.util.Log.e("CrunchAPI", "IO error: ${e.message}", e)
