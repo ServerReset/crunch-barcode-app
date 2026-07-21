@@ -34,7 +34,6 @@ jobs:
           if [ -n "${{ secrets.ANDROID_SIGNING_KEY }}" ]; then
             echo "${{ secrets.ANDROID_SIGNING_KEY }}" | base64 -d > app/release.keystore
           else
-            echo "No signing key secret. Generating ephemeral debug keystore..."
             keytool -genkey -v -keystore app/release.keystore \
               -alias release \
               -keyalg RSA -keysize 2048 -validity 10000 \
@@ -47,19 +46,19 @@ jobs:
           KEYSTORE_PASSWORD: android
           KEY_ALIAS: release
           KEY_PASSWORD: android
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: ./gradlew assembleRelease
 
-      - name: Rename and verify APK
+      - name: Rename APK
         run: |
-          ls -la app/build/outputs/apk/release/
-          # Rename for cleaner release
-          cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/CrunchBarcode-v1.0.0.apk
+          cp app/build/outputs/apk/release/app-release.apk \
+             app/build/outputs/apk/release/CrunchBarcode.apk
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: crunch-barcode-apk
-          path: app/build/outputs/apk/release/CrunchBarcode-v*.apk
+          path: app/build/outputs/apk/release/CrunchBarcode.apk
           compression-level: 0
 
   release:
@@ -82,16 +81,15 @@ jobs:
           body: |
             ## Crunch Barcode v${{ github.run_number }}
 
-            - APK is signed with V1, V2, and V3 signature schemes
-            - Zipaligned for proper installation
-            - Targets Android 10+ (API 26), built against API 35
+            Signed, aligned APK. versionCode: ${{ github.run_number }}.
 
             ### Install
-            1. Download **CrunchBarcode-v1.0.0.apk**
+            1. Download **CrunchBarcode.apk**
             2. Open it on your Android device
-            3. Tap **More Details** → **Install Anyway** if prompted to scan
-            4. Confirm with your biometrics or device PIN
+            3. If prompted to scan, tap **More Details** → **Install Anyway**
+            4. Confirm with biometrics or device PIN
           files: |
-            CrunchBarcode-*.apk
+            CrunchBarcode.apk
           draft: false
           prerelease: false
+          makeLatest: true
