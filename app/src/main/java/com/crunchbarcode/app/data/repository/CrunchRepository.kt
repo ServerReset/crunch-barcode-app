@@ -7,7 +7,6 @@ import androidx.security.crypto.MasterKey
 import com.crunchbarcode.app.data.api.CrunchApi
 import com.crunchbarcode.app.data.api.CrunchAuthException
 import com.crunchbarcode.app.data.model.BarcodeResponse
-import com.crunchbarcode.app.data.model.BarcodeResponse
 import com.crunchbarcode.app.data.model.LoginResponse
 import com.crunchbarcode.app.data.model.UserCredentials
 
