@@ -77,22 +77,52 @@ class BarcodeViewModel(private val app: Application, private val repo: CrunchRep
         _s.value = _s.value.copy(justCopied = true); viewModelScope.launch { delay(2000); _s.value = _s.value.copy(justCopied = false) }
     }}
 
-    fun saveBarcodeToGallery() { _s.value.barcodeBitmap?.let { bmp -> viewModelScope.launch {
-        withContext(Dispatchers.IO) { try {
-            val cv = ContentValues().apply { put(MediaStore.Images.Media.DISPLAY_NAME, "CrunchBarcode_${System.currentTimeMillis()}.png"); put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                if (Build.VERSION.SDK_INT >= 29) { put(MediaStore.Images.Media.IS_PENDING, 1); put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/CrunchBarcode") } }
-            val uri = app.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv) ?: throw Exception("No URI")
-            app.contentResolver.openOutputStream(uri)?.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } ?: throw Exception("No stream")
-            if (Build.VERSION.SDK_INT >= 29) { cv.clear(); cv.put(MediaStore.Images.Media.IS_PENDING, 0); app.contentResolver.update(uri, cv, null, null) }
-        } catch (e: Exception) { _s.value = _s.value.copy(error = "Save failed: ${e.localizedMessage}") }}
-    } }}
+    fun saveBarcodeToGallery() {
+        val bmp = _s.value.barcodeBitmap ?: return
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val cv = ContentValues()
+                    cv.put(MediaStore.Images.Media.DISPLAY_NAME, "CrunchBarcode_${System.currentTimeMillis()}.png")
+                    cv.put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        cv.put(MediaStore.Images.Media.IS_PENDING, 1)
+                        cv.put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/CrunchBarcode")
+                    }
+                    val uri = app.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv)
+                        ?: throw Exception("No URI")
+                    app.contentResolver.openOutputStream(uri)?.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                        ?: throw Exception("No stream")
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        cv.clear(); cv.put(MediaStore.Images.Media.IS_PENDING, 0)
+                        app.contentResolver.update(uri, cv, null, null)
+                    }
+                    Result.success(Unit)
+                } catch (e: Exception) { Result.failure(e) }
+            }
+            result.fold(onSuccess = {}, onFailure = { e ->
+                _s.value = _s.value.copy(error = "Save failed: ${e.localizedMessage}")
+            })
+        }
+    }
 
-    fun shareBarcode() { _s.value.barcodeBitmap?.let { bmp -> viewModelScope.launch { withContext(Dispatchers.IO) { try {
-        val f = File(app.cacheDir, "shared_barcodes").also { it.mkdirs() }; val file = File(f, "crunch_barcode.png")
-        FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
-        app.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "image/png"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, "Share barcode").apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
-    } catch (_: Exception) {} } } } }
+    fun shareBarcode() {
+        val bmp = _s.value.barcodeBitmap ?: return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    val dir = File(app.cacheDir, "shared_barcodes").also { it.mkdirs() }
+                    val file = File(dir, "crunch_barcode.png")
+                    FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/png"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    app.startActivity(Intent.createChooser(intent, "Share barcode").apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+                } catch (_: Exception) {}
+            }
+        }
+    }
 
     fun trySamsungWallet() { try { app.startActivity(Intent(Intent.ACTION_VIEW).apply { data = Uri.parse("samsungwallet://addPass"); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) } catch (_: Exception) { shareBarcode() } }
 
