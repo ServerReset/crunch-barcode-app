@@ -1,19 +1,14 @@
 package com.crunchbarcode.app.biometric
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.ComponentActivity
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.fragment.app.FragmentActivity
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
-import androidx.biometric.BiometricPrompt.PromptInfo
-import androidx.core.content.ContextCompat
-import androidx.fragment.app.Fragment
 import java.util.concurrent.Executors
 
 sealed class BiometricState {
@@ -24,7 +19,7 @@ sealed class BiometricState {
 }
 
 @Composable
-fun rememberBiometricState(activity: FragmentActivity): BiometricState {
+fun rememberBiometricState(activity: ComponentActivity): BiometricState {
     val biometricManager = BiometricManager.from(activity)
     val canAuthenticate = biometricManager.canAuthenticate(
         BiometricManager.Authenticators.BIOMETRIC_STRONG or
