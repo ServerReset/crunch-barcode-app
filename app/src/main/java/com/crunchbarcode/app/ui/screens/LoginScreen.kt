@@ -119,11 +119,12 @@ fun LoginScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            if (state.error != null) {
+            val errorText = state.error
+            if (errorText != null) {
                 Spacer(modifier = Modifier.height(12.dp))
                 AssistChip(
                     onClick = {},
-                    label = { Text(state.error) },
+                    label = { Text(errorText) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = AssistChipDefaults.assistChipColors(
                         labelColor = MaterialTheme.colorScheme.error,

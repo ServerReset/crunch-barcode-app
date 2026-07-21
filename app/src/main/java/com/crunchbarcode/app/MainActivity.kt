@@ -4,7 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.runtime.*
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -44,7 +43,7 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("barcode") {
                         val viewModel: BarcodeViewModel = viewModel(
-                            factory = BarcodeViewModel.Factory(app.repository)
+                            factory = BarcodeViewModel.Factory(application, app.repository)
                         )
                         BarcodeScreen(
                             viewModel = viewModel,
