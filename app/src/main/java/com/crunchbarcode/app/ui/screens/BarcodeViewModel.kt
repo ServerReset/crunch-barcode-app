@@ -36,7 +36,7 @@ data class BarcodeUiState(
     val healthData: HealthData = HealthData(), val healthLoading: Boolean = false
 )
 
-class BarcodeViewModel(app: Application, private val repo: CrunchRepository) : ViewModel() {
+class BarcodeViewModel(private val app: Application, private val repo: CrunchRepository) : ViewModel() {
     private val _s = MutableStateFlow(BarcodeUiState()); val uiState = _s.asStateFlow()
     private val healthManager = HealthConnectManager(app)
     private var countdownJob: Job? = null
