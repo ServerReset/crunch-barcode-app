@@ -194,10 +194,6 @@ fun LoginScreen(
                         ServerPresetChip("Canada", "https://vollgas.netpulse.com", state.serverUrl, viewModel::onServerUrlChanged)
                         ServerPresetChip("Fallback", "https://api.netpulse.com", state.serverUrl, viewModel::onServerUrlChanged)
                     }
-                    Spacer(Modifier.height(8.dp))
-                    if (state.isResolving) {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
-                    }
                 }
             }
 

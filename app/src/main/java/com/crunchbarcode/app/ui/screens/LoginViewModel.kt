@@ -14,8 +14,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.net.URL
 
 data class LoginUiState(
     val login: String = "",
@@ -25,8 +23,7 @@ data class LoginUiState(
     val isLoggedIn: Boolean = false,
     val isPasswordVisible: Boolean = false,
     val serverUrl: String = CrunchApi.BASE_URL,
-    val showServerSettings: Boolean = false,
-    val isResolving: Boolean = false
+    val showServerSettings: Boolean = false
 )
 
 class LoginViewModel(
@@ -67,37 +64,6 @@ class LoginViewModel(
 
     fun toggleServerSettings() {
         _uiState.value = _uiState.value.copy(showServerSettings = !_uiState.value.showServerSettings)
-    }
-
-    fun resolveRegion(keyword: String) {
-        if (keyword.isBlank()) return
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isResolving = true, error = null)
-            val result = withContext(Dispatchers.IO) {
-                try {
-                    val base = _uiState.value.serverUrl
-                    val url = "$base/np/nfa/resolveContainer?keyword=${java.net.URLEncoder.encode(keyword, "UTF-8")}&containerAppVersion=559"
-                    val conn = URL(url).openConnection() as java.net.HttpURLConnection
-                    conn.setRequestProperty("Accept", "application/json")
-                    conn.connectTimeout = 15000
-                    conn.readTimeout = 15000
-                    val code = conn.responseCode
-                    if (code == 200) {
-                        val body = conn.inputStream.bufferedReader().readText()
-                        val json = JSONObject(body)
-                        val brandId = json.optString("brandIdentifier", "")
-                        val resourceType = json.optString("resourceType", "prod")
-                        "brandId=$brandId&resourceType=$resourceType"
-                    } else {
-                        "Server returned HTTP $code"
-                    }
-                } catch (e: Exception) {
-                    e.localizedMessage ?: "Connection failed"
-                }
-            }
-            _uiState.value = _uiState.value.copy(isResolving = false,
-                error = "Resolve result: $result")
-        }
     }
 
     fun login() {

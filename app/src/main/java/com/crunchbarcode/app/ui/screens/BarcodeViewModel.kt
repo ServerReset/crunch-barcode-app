@@ -32,8 +32,9 @@ data class BarcodeUiState(
     val update: com.crunchbarcode.app.update.AppUpdate? = null, val isUpdateChecking: Boolean = true,
     val isDownloading: Boolean = false, val downloadProgress: Float = 0f,
     val installPrompt: Boolean = false, val installUri: Uri? = null,
-    val countdownSeconds: Int = 0, val justCopied: Boolean = false,
-    val memberFirstName: String? = null, val healthData: HealthData = HealthData(), val healthLoading: Boolean = false
+    val countdownSeconds: Int = 300, val justCopied: Boolean = false,
+    val memberFirstName: String? = null, val lastRefreshed: String? = null,
+    val healthData: HealthData = HealthData(), val healthLoading: Boolean = false
 )
 
 class BarcodeViewModel(private val app: Application, private val repo: CrunchRepository) : ViewModel() {
@@ -59,7 +60,9 @@ class BarcodeViewModel(private val app: Application, private val repo: CrunchRep
         val px = IntArray(mx.width * mx.height); for (y in 0 until mx.height) for (x in 0 until mx.width) px[y * mx.width + x] = if (mx[x, y]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
         b.setPixels(px, 0, mx.width, 0, 0, mx.width, mx.height)
         BarcodeWidgetProvider.pushBarcodeUpdate(app, b)
-        _s.value = _s.value.copy(barcodeValue = value, barcodeBitmap = b, isLoading = false, error = null)
+        val time = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date())
+        _s.value = _s.value.copy(barcodeValue = value, barcodeBitmap = b, isLoading = false, error = null, countdownSeconds = (refreshMs / 1000).toInt(), lastRefreshed = time)
+        startCountdown()
     } catch (e: Exception) { _s.value = _s.value.copy(isLoading = false, error = "Render failed: ${e.localizedMessage}") }}
 
     fun startCountdown() { countdownJob?.cancel(); countdownJob = viewModelScope.launch {
@@ -131,7 +134,18 @@ class BarcodeViewModel(private val app: Application, private val repo: CrunchRep
         }
     }
 
-    fun trySamsungWallet() { try { app.startActivity(Intent(Intent.ACTION_VIEW).apply { data = Uri.parse("samsungwallet://addPass"); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) } catch (_: Exception) { shareBarcode() } }
+    fun trySamsungWallet() {
+        val schemes = listOf("samsungwallet://addPass", "samsungpay://addPass", "wallet://addPass")
+        for (scheme in schemes) {
+            try {
+                app.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                    data = Uri.parse(scheme); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+                return
+            } catch (_: Exception) {}
+        }
+        shareBarcode()
+    }
 
     private fun checkForUpdate() { viewModelScope.launch {
         _s.value = _s.value.copy(isUpdateChecking = true)
