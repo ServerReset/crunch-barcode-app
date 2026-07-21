@@ -98,26 +98,56 @@ class BarcodeViewModel(private val app: Application, private val repo: CrunchRep
 
     private fun checkForUpdate() { viewModelScope.launch {
         _s.value = _s.value.copy(isUpdateChecking = true)
-        UpdateChecker(BuildConfig.VERSION_NAME).checkForUpdate().fold({ _s.value = _s.value.copy(update = if (it.isNewer) it else null, isUpdateChecking = false) },
-            { _s.value = _s.value.copy(isUpdateChecking = false) })
+        val result = UpdateChecker(BuildConfig.VERSION_NAME).checkForUpdate()
+        result.fold(
+            onSuccess = { upd -> _s.value = _s.value.copy(update = if (upd.isNewer) upd else null, isUpdateChecking = false) },
+            onFailure = { _s.value = _s.value.copy(isUpdateChecking = false) }
+        )
     }}
 
-    fun downloadAndInstall() { _s.value.update?.let { u -> viewModelScope.launch {
-        _s.value = _s.value.copy(isDownloading = true, downloadProgress = 0f)
-        withContext(Dispatchers.IO) { try {
-            val dir = File(app.cacheDir, "updates").also { it.mkdirs() }; dir.listFiles()?.forEach { it.delete() }; val file = File(dir, "crunch-barcode-update.apk")
-            val conn = URL(u.downloadUrl).openConnection() as HttpURLConnection; conn.connectTimeout = 30000; conn.readTimeout = 30000; conn.connect()
-            FileOutputStream(file).use { out -> val buf = ByteArray(8192); var r: Int; var t = 0L; val s = conn.contentLengthLong
-                while (conn.inputStream.read(buf).also { r = it } != -1) { out.write(buf, 0, r); t += r; if (s > 0) _s.value = _s.value.copy(downloadProgress = t.toFloat() / s.toFloat()) } }
-            conn.inputStream.close()
-            Result.success(FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file))
-        } catch (e: Exception) { Result.failure(e) }}.fold({ _s.value = _s.value.copy(isDownloading = false, installUri = it, installPrompt = true) },
-            { _s.value = _s.value.copy(isDownloading = false, error = "Download: ${it.localizedMessage}") })
-    } }}
+    fun downloadAndInstall() {
+        val update = _s.value.update ?: return
+        viewModelScope.launch {
+            _s.value = _s.value.copy(isDownloading = true, downloadProgress = 0f)
+            val result = withContext(Dispatchers.IO) { downloadApk(update.downloadUrl) }
+            result.fold(
+                onSuccess = { uri -> _s.value = _s.value.copy(isDownloading = false, installUri = uri, installPrompt = true) },
+                onFailure = { e -> _s.value = _s.value.copy(isDownloading = false, error = "Download: ${e.localizedMessage}") }
+            )
+        }
+    }
 
-    fun launchInstall() { _s.value.installUri?.let { app.startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(it, "app/vnd.android.package-archive"); flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK; putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true) }) } }
+    private fun downloadApk(downloadUrl: String): Result<Uri> = try {
+        val dir = File(app.cacheDir, "updates").also { it.mkdirs() }
+        dir.listFiles()?.forEach { it.delete() }
+        val file = File(dir, "crunch-barcode-update.apk")
+        val conn = URL(downloadUrl).openConnection() as HttpURLConnection
+        conn.connectTimeout = 30000; conn.readTimeout = 30000; conn.connect()
+        FileOutputStream(file).use { out ->
+            val buf = ByteArray(8192); var r: Int; var total = 0L; val size = conn.contentLengthLong
+            while (conn.inputStream.read(buf).also { r = it } != -1) {
+                out.write(buf, 0, r); total += r
+                if (size > 0) _s.value = _s.value.copy(downloadProgress = total.toFloat() / size.toFloat())
+            }
+        }
+        conn.inputStream.close()
+        Result.success(FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file))
+    } catch (e: Exception) { Result.failure(e) }
+
+    fun launchInstall() {
+        val uri = _s.value.installUri ?: return
+        app.startActivity(Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+        })
+    }
     fun dismissInstallPrompt() { _s.value = _s.value.copy(installPrompt = false) }
-    fun loadHealthData() { viewModelScope.launch { _s.value = _s.value.copy(healthLoading = true); _s.value = _s.value.copy(healthData = withContext(Dispatchers.IO) { healthManager.loadHealthData() }, healthLoading = false) } }
+    fun loadHealthData() { viewModelScope.launch {
+        _s.value = _s.value.copy(healthLoading = true)
+        val data = withContext(Dispatchers.IO) { healthManager.loadHealthData() }
+        _s.value = _s.value.copy(healthData = data, healthLoading = false)
+    }}
     fun getHealthPermissionIntent() = healthManager.getPermissionIntent()
     fun logout() { countdownJob?.cancel(); repo.logout() }
 
