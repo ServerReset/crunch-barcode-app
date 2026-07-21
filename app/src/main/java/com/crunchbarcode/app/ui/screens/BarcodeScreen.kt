@@ -233,7 +233,7 @@ private fun ControlsRow(state: BarcodeUiState, vm: BarcodeViewModel) {
 
 @Composable
 private fun ErrorContent(error: String, onRetry: () -> Unit) {
-    Column(Modifier.fillMaxSize().weight(1f).padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally,
+    Column(Modifier.fillMaxSize().padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center) {
         Icon(Icons.Default.ErrorOutline, null, Modifier.size(64.dp), tint = MaterialTheme.colorScheme.error)
         Spacer(Modifier.height(12.dp))

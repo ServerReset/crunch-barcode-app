@@ -1,15 +1,17 @@
 package com.crunchbarcode.app.health
 
 import android.content.Context
+import android.content.Intent
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
-import androidx.health.connect.client.request.AggregateRequest
+import androidx.health.connect.client.request.AggregateGroupRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
+import androidx.health.connect.client.units.Energy
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
@@ -33,9 +35,7 @@ data class HealthData(
 class HealthConnectManager(private val context: Context) {
 
     private val client: HealthConnectClient? by lazy {
-        try {
-            HealthConnectClient.getOrCreate(context)
-        } catch (_: Exception) { null }
+        try { HealthConnectClient.getOrCreate(context) } catch (_: Exception) { null }
     }
 
     val isAvailable: Boolean get() = client != null
@@ -46,9 +46,8 @@ class HealthConnectManager(private val context: Context) {
         HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class)
     )
 
-    fun getPermissionIntent() = client?.let {
-        PermissionController.createRequestPermissionResultContract()
-            .createIntent(it, permissions)
+    fun getPermissionIntent(): Intent? = client?.let {
+        PermissionController.createRequestPermissionResultContract().createIntent(it, permissions)
     }
 
     suspend fun hasPermissions(): Boolean {
@@ -60,14 +59,12 @@ class HealthConnectManager(private val context: Context) {
 
     suspend fun loadHealthData(): HealthData {
         val c = client ?: return HealthData(isAvailable = false)
-
         if (!hasPermissions()) return HealthData(isAvailable = true, isAuthorized = false)
 
         return try {
             val today = LocalDate.now()
             val startOfDay = today.atStartOfDay(ZoneId.systemDefault()).toInstant()
             val endOfDay = today.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant()
-
             val startOfWeek = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
                 .atStartOfDay(ZoneId.systemDefault()).toInstant()
 
@@ -75,36 +72,37 @@ class HealthConnectManager(private val context: Context) {
             val weekRange = TimeRangeFilter.between(startOfWeek, endOfDay)
 
             val stepsToday = try {
-                val stepsResp = c.aggregate(
-                    AggregateRequest(
+                val resp = c.aggregateGroup(
+                    AggregateGroupRequest(
                         StepsRecord::class,
                         todayRange,
-                        emptySet()
+                        setOf(StepsRecord.COUNT_TOTAL)
                     )
                 )
-                (stepsResp[StepsRecord.COUNT_TOTAL]?.inWholeSteps ?: 0).toInt()
+                resp[StepsRecord.COUNT_TOTAL]?.inSteps?.toInt() ?: 0
             } catch (_: Exception) { 0 }
 
             val stepsWeek = try {
-                val stepsWeekResp = c.aggregate(
-                    AggregateRequest(
+                val resp = c.aggregateGroup(
+                    AggregateGroupRequest(
                         StepsRecord::class,
                         weekRange,
-                        emptySet()
+                        setOf(StepsRecord.COUNT_TOTAL)
                     )
                 )
-                (stepsWeekResp[StepsRecord.COUNT_TOTAL]?.inWholeSteps ?: 0).toInt()
+                resp[StepsRecord.COUNT_TOTAL]?.inSteps?.toInt() ?: 0
             } catch (_: Exception) { 0 }
 
             val caloriesToday = try {
-                val calResp = c.aggregate(
-                    AggregateRequest(
+                val resp = c.aggregateGroup(
+                    AggregateGroupRequest(
                         TotalCaloriesBurnedRecord::class,
                         todayRange,
-                        emptySet()
+                        setOf(TotalCaloriesBurnedRecord.CALORIES_TOTAL)
                     )
                 )
-                calResp[TotalCaloriesBurnedRecord.CALORIES_TOTAL]?.inCalories ?: 0.0
+                val energy = resp[TotalCaloriesBurnedRecord.CALORIES_TOTAL]
+                energy?.inCalories ?: 0.0
             } catch (_: Exception) { 0.0 }
 
             val workoutsResp = try {
@@ -119,13 +117,12 @@ class HealthConnectManager(private val context: Context) {
             val workoutCount = workoutsResp?.records?.size ?: 0
             val lastWorkout = workoutsResp?.records?.maxByOrNull { it.startTime }
             val lastWorkoutName = lastWorkout?.exerciseType?.let { type ->
-                val names = ExerciseSessionRecord::class.java.fields
-                    .filter { it.name.startsWith("EXERCISE_TYPE_") && it.getInt(null) == type }
-                    .map { it.name.removePrefix("EXERCISE_TYPE_")
-                        .lowercase().replace("_", " ")
-                        .replaceFirstChar { c -> c.uppercase() }
-                    }
-                names.firstOrNull()
+                ExerciseSessionRecord::class.java.declaredFields
+                    .filter { it.name.startsWith("EXERCISE_TYPE_") }
+                    .firstOrNull { it.getInt(null) == type }
+                    ?.name?.removePrefix("EXERCISE_TYPE_")
+                    ?.lowercase()?.replace("_", " ")
+                    ?.replaceFirstChar { c -> c.uppercase() }
             }
             val lastWorkoutDate = lastWorkout?.startTime?.atZone(ZoneId.systemDefault())?.toLocalDate()?.toString()
 
@@ -137,11 +134,10 @@ class HealthConnectManager(private val context: Context) {
                 lastWorkoutName = lastWorkoutName,
                 lastWorkoutDate = lastWorkoutDate,
                 isAvailable = true,
-                isAuthorized = true,
-                isLoading = false
+                isAuthorized = true
             )
         } catch (e: Exception) {
-            HealthData(isAvailable = true, isAuthorized = true, isLoading = false, error = e.localizedMessage)
+            HealthData(isAvailable = true, isAuthorized = true, error = e.localizedMessage)
         }
     }
 }
