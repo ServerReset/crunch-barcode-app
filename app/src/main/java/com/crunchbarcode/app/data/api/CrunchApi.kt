@@ -24,17 +24,12 @@ class CrunchApi(private val baseUrl: String = BASE_URL) {
     }
 
     private val cookieStore = mutableMapOf<String, List<Cookie>>()
-    private val sessionCookieJar = object : CookieJar {
+    private val cookieJar = object : CookieJar {
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-            val host = url.host
-            cookieStore[host] = cookies
-            val sessionCookie = cookies.find { it.name == "JSESSIONID" }
-            if (sessionCookie != null) sessionId = sessionCookie.value
+            cookieStore[url.host] = cookies
+            cookies.find { it.name == "JSESSIONID" }?.let { sessionId = it.value }
         }
-        override fun loadForRequest(url: HttpUrl): List<Cookie> {
-            val host = url.host
-            return cookieStore[host] ?: emptyList()
-        }
+        override fun loadForRequest(url: HttpUrl) = cookieStore[url.host] ?: emptyList()
     }
 
     var sessionId: String? = null
@@ -43,7 +38,7 @@ class CrunchApi(private val baseUrl: String = BASE_URL) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
-        .cookieJar(sessionCookieJar)
+        .cookieJar(cookieJar)
         .addInterceptor { chain ->
             chain.proceed(chain.request().newBuilder()
                 .addHeader("Accept", "application/json")
@@ -53,48 +48,44 @@ class CrunchApi(private val baseUrl: String = BASE_URL) {
         .build()
 
     fun login(username: String, password: String): Result<LoginResponse> {
+        val request = Request.Builder()
+            .url("$baseUrl$LOGIN_PATH")
+            .post(FormBody.Builder().add("login", username).add("password", password).build())
+            .build()
+
         return try {
-            val formBody = FormBody.Builder()
-                .add("login", username)
-                .add("password", password)
-                .build()
-
-            val request = Request.Builder()
-                .url("$baseUrl$LOGIN_PATH")
-                .post(formBody)
-                .build()
-
             val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: throw IOException("Empty response body")
             val code = response.code
+            val body = response.body?.string() ?: ""
 
-            if (code == 200) {
-                val json = JSONObject(body)
-                val sid = sessionId ?: ""
-                Result.success(LoginResponse.fromJson(json, sid))
-            } else {
-                val errorJson = try { JSONObject(body) } catch (_: Exception) { null }
-                val apiMsg = errorJson?.optString("message", "") ?: ""
-                val apiCause = errorJson?.optString("cause", "") ?: ""
-                val snippet = if (apiMsg.isNotEmpty()) apiMsg
-                    else body.take(200)
-                Result.failure(CrunchAuthException(code, apiMsg, apiCause, snippet))
+            if (code != 200) {
+                val msg = try { JSONObject(body).optString("message", "") } catch (_: Exception) { "" }
+                val cause = try { JSONObject(body).optString("cause", "") } catch (_: Exception) { "" }
+                val hint = if (msg.isNotEmpty()) msg else body.take(150)
+                return Result.failure(CrunchAuthException(code, msg, cause, hint))
             }
+
+            val json = JSONObject(body)
+            val sid = sessionId ?: ""
+            val uuid = json.optString("uuid", "")
+            if (uuid.isEmpty()) {
+                return Result.failure(Exception("Server response missing uuid. Body: ${body.take(200)}"))
+            }
+
+            Result.success(LoginResponse.fromJson(json, sid))
         } catch (e: CrunchAuthException) {
             Result.failure(e)
         } catch (e: IOException) {
-            Result.failure(Exception("Network error: ${e.localizedMessage ?: "Could not reach server"}"))
+            Result.failure(Exception("Can't reach server: ${e.localizedMessage ?: "check your connection"}"))
         } catch (e: Exception) {
-            val snippet = e.localizedMessage ?: "Unknown error"
-            Result.failure(Exception("Response error: $snippet"))
+            Result.failure(Exception("Server response error: ${e.localizedMessage ?: body.take(200)}"))
         }
     }
 
     fun getBarcode(credentials: UserCredentials): Result<BarcodeResponse> {
         return try {
-            val path = String.format(BARCODE_PATH, credentials.uuid)
-            val request = Request.Builder().url("$baseUrl$path").get().build()
-            val response = client.newCall(request).execute()
+            val url = "$baseUrl${String.format(BARCODE_PATH, credentials.uuid)}"
+            val response = client.newCall(Request.Builder().url(url).get().build()).execute()
             val body = response.body?.string() ?: throw IOException("Empty response")
             if (!response.isSuccessful)
                 return Result.failure(IOException("Barcode fetch failed (${response.code})"))
@@ -106,13 +97,12 @@ class CrunchApi(private val baseUrl: String = BASE_URL) {
 
     fun getGooglePayBarcodeJwt(credentials: UserCredentials): Result<String> {
         return try {
-            val path = String.format(GOOGLE_PAY_BARCODE_PATH, credentials.uuid)
-            val url = "$baseUrl$path".toHttpUrl().newBuilder()
+            val url = "$baseUrl${String.format(GOOGLE_PAY_BARCODE_PATH, credentials.uuid)}"
+                .toHttpUrl().newBuilder()
                 .addQueryParameter("appVersion", "1")
                 .addQueryParameter("backgroundColor", "#000000")
                 .build()
-            val request = Request.Builder().url(url).get().build()
-            val response = client.newCall(request).execute()
+            val response = client.newCall(Request.Builder().url(url).get().build()).execute()
             val body = response.body?.string() ?: throw IOException("Empty response")
             if (!response.isSuccessful)
                 return Result.failure(IOException("Google Pay barcode fetch failed (${response.code})"))
@@ -127,5 +117,5 @@ class CrunchAuthException(
     val httpCode: Int,
     val apiMessage: String,
     val apiCause: String,
-    val snippet: String = ""
-) : Exception("Server returned $httpCode: ${apiMessage.ifEmpty { snippet.take(100) }}")
+    val hint: String = ""
+) : Exception("Server returned $httpCode: ${apiMessage.ifEmpty { hint.take(100) }}")

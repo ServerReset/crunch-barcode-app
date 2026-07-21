@@ -29,18 +29,6 @@ jobs:
       - name: Generate Gradle Wrapper
         run: gradle wrapper --gradle-version 8.11.1
 
-      - name: Create release keystore
-        run: |
-          if [ -n "${{ secrets.ANDROID_SIGNING_KEY }}" ]; then
-            echo "${{ secrets.ANDROID_SIGNING_KEY }}" | base64 -d > app/release.keystore
-          else
-            keytool -genkey -v -keystore app/release.keystore \
-              -alias release \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass android -keypass android \
-              -dname "CN=CrunchBarcode, OU=Dev, O=CrunchBarcode, L=City, S=State, C=US"
-          fi
-
       - name: Build signed APK
         env:
           KEYSTORE_PASSWORD: android
@@ -50,9 +38,7 @@ jobs:
         run: ./gradlew assembleRelease
 
       - name: Rename APK
-        run: |
-          cp app/build/outputs/apk/release/app-release.apk \
-             app/build/outputs/apk/release/CrunchBarcode.apk
+        run: cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/CrunchBarcode.apk
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
@@ -81,7 +67,7 @@ jobs:
           body: |
             ## Crunch Barcode v${{ github.run_number }}
 
-            Signed, aligned APK. versionCode: ${{ github.run_number }}.
+            Signed with consistent debug key. versionCode: ${{ github.run_number }}.
 
             ### Install
             1. Download **CrunchBarcode.apk**
