@@ -19,6 +19,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.MultiFormatWriter
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -68,14 +69,20 @@ class BarcodeViewModel(private val app: Application, private val repo: CrunchRep
 
     fun loadGooglePayJwt() { viewModelScope.launch {
         _s.value = _s.value.copy(isGooglePayLoading = true)
-        withContext(Dispatchers.IO) { repo.getGooglePayJwt() }.fold({ _s.value = _s.value.copy(googlePayJwt = it, isGooglePayLoading = false) },
-            { _s.value = _s.value.copy(isGooglePayLoading = false, error = "Wallet: ${it.localizedMessage}") })
+        val result = withContext(Dispatchers.IO) { repo.getGooglePayJwt() }
+        result.fold(
+            onSuccess = { _s.value = _s.value.copy(googlePayJwt = it, isGooglePayLoading = false) },
+            onFailure = { _s.value = _s.value.copy(isGooglePayLoading = false, error = "Wallet: ${it.localizedMessage}") }
+        )
     }}
 
-    fun copyBarcodeToClipboard() { _s.value.barcodeValue?.let {
-        (app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Crunch Barcode", it))
-        _s.value = _s.value.copy(justCopied = true); viewModelScope.launch { delay(2000); _s.value = _s.value.copy(justCopied = false) }
-    }}
+    fun copyBarcodeToClipboard() {
+        val value = _s.value.barcodeValue ?: return
+        (app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+            .setPrimaryClip(ClipData.newPlainText("Crunch Barcode", value))
+        _s.value = _s.value.copy(justCopied = true)
+        viewModelScope.launch { delay(2000); _s.value = _s.value.copy(justCopied = false) }
+    }
 
     fun saveBarcodeToGallery() {
         val bmp = _s.value.barcodeBitmap ?: return
