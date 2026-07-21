@@ -5,7 +5,6 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,7 +20,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
@@ -29,6 +27,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -41,8 +40,7 @@ fun BarcodeScreen(
     val uriHandler = LocalUriHandler.current
     val snackbarHostState = remember { SnackbarHostState() }
     val haptics = LocalHapticFeedback.current
-
-    val pullToRefreshState = rememberPullToRefreshState()
+    val scrollState = rememberScrollState()
 
     LaunchedEffect(state.googlePayJwt) {
         state.googlePayJwt?.let { jwt ->
@@ -61,7 +59,6 @@ fun BarcodeScreen(
         if (state.justCopied) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             snackbarHostState.showSnackbar("Barcode copied to clipboard")
-            delay(1500)
         }
     }
 
@@ -96,70 +93,48 @@ fun BarcodeScreen(
             )
         }
     ) { padding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .nestedScroll(pullToRefreshState.nestedScrollConnection)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                if (state.isLoading && state.barcodeBitmap == null) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        ShimmerLoading()
-                    }
-                } else {
-                    AnimatedContent(
-                        targetState = state.error != null && state.barcodeBitmap == null,
-                        transitionSpec = { fadeIn() togetherWith fadeOut() },
-                        label = "barcode_content"
-                    ) { isError ->
-                        if (isError) {
-                            ErrorContent(state.error ?: "", viewModel::loadBarcode)
-                        } else {
-                            BarcodeContent(state, viewModel)
-                        }
-                    }
+            if (state.isLoading && state.barcodeBitmap == null) {
+                Box(
+                    modifier = Modifier.fillMaxSize().weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    ShimmerLoading()
                 }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                if (!state.isUpdateChecking && state.update != null) {
-                    val updateState = state.update
-                    UpdateBanner(
-                        version = updateState.latestVersion,
-                        isDownloading = state.isDownloading,
-                        progress = state.downloadProgress,
-                        onUpdate = viewModel::downloadAndInstall
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            if (pullToRefreshState.isRefreshing) {
-                LaunchedEffect(true) {
-                    viewModel.loadBarcode()
-                    delay(1000)
-                    pullToRefreshState.endRefresh()
+            } else {
+                AnimatedContent(
+                    targetState = state.error != null && state.barcodeBitmap == null,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    label = "barcode_content"
+                ) { isError ->
+                    if (isError) {
+                        ErrorContent(state.error ?: "", viewModel::loadBarcode)
+                    } else {
+                        BarcodeContent(state, viewModel)
+                    }
                 }
             }
 
-            PullToRefreshContainer(
-                state = pullToRefreshState,
-                modifier = Modifier.align(Alignment.TopCenter),
-                shape = RoundedCornerShape(16.dp)
-            )
+            Spacer(modifier = Modifier.height(24.dp))
+
+            val updateState = state.update
+            if (!state.isUpdateChecking && updateState != null) {
+                UpdateBanner(
+                    version = updateState.latestVersion,
+                    isDownloading = state.isDownloading,
+                    progress = state.downloadProgress,
+                    onUpdate = viewModel::downloadAndInstall
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
@@ -186,9 +161,7 @@ private fun BarcodeContent(
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 CountdownChip(seconds = state.countdownSeconds)
-                CopyChip(
-                    onCopy = viewModel::copyBarcodeToClipboard
-                )
+                CopyChip(onCopy = viewModel::copyBarcodeToClipboard)
             }
         }
 
@@ -244,19 +217,13 @@ private fun BarcodeValueCard(value: String) {
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
         )
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = value,
-                style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
-                modifier = Modifier.weight(1f),
-                letterSpacing = 2.sp
-            )
-        }
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            textAlign = TextAlign.Center,
+            letterSpacing = 2.sp
+        )
     }
 }
 
@@ -270,7 +237,7 @@ private fun CountdownChip(seconds: Int) {
         onClick = {},
         icon = {
             Icon(
-                if (isUrgent) Icons.Default.Timer else Icons.Default.TimerOutlined,
+                Icons.Default.Timer,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
                 tint = if (isUrgent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
@@ -296,11 +263,7 @@ private fun CopyChip(onCopy: () -> Unit) {
     SuggestionChip(
         onClick = onCopy,
         icon = {
-            Icon(
-                Icons.Default.ContentCopy,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp)
-            )
+            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
         },
         label = { Text("Copy barcode", style = MaterialTheme.typography.labelSmall) }
     )
@@ -318,9 +281,7 @@ private fun ActionButtons(
     ) {
         OutlinedButton(
             onClick = onRefresh,
-            modifier = Modifier
-                .weight(1f)
-                .height(52.dp),
+            modifier = Modifier.weight(1f).height(52.dp),
             shape = RoundedCornerShape(16.dp)
         ) {
             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(20.dp))
@@ -331,9 +292,7 @@ private fun ActionButtons(
         Button(
             onClick = onGooglePay,
             enabled = !isGooglePayLoading,
-            modifier = Modifier
-                .weight(1f)
-                .height(52.dp),
+            modifier = Modifier.weight(1f).height(52.dp),
             shape = RoundedCornerShape(16.dp)
         ) {
             if (isGooglePayLoading) {
@@ -354,9 +313,7 @@ private fun ActionButtons(
 @Composable
 private fun ErrorContent(error: String, onRetry: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 48.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(
@@ -366,10 +323,8 @@ private fun ErrorContent(error: String, onRetry: () -> Unit) {
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            text = error,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.error,
-            textAlign = TextAlign.Center
+            text = error, style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(24.dp))
         FilledTonalButton(onClick = onRetry, shape = RoundedCornerShape(16.dp)) {
@@ -389,8 +344,7 @@ private fun ShimmerLoading() {
         label = "shimmer"
     )
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Spacer(Modifier.height(48.dp))
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 48.dp)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -400,9 +354,7 @@ private fun ShimmerLoading() {
         )
         Spacer(Modifier.height(16.dp))
         Box(
-            modifier = Modifier
-                .fillMaxWidth(0.6f)
-                .height(24.dp)
+            modifier = Modifier.fillMaxWidth(0.6f).height(24.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
         )
@@ -421,9 +373,7 @@ private fun UpdateBanner(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer
-        )
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -434,8 +384,7 @@ private fun UpdateBanner(
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text("Update v$version available",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold)
+                    style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 if (isDownloading) {
                     Spacer(Modifier.height(6.dp))
                     LinearProgressIndicator(progress = { progress },
@@ -467,11 +416,7 @@ private fun InstallDialog(onInstall: () -> Unit, onDismiss: () -> Unit) {
                 )
             }
         },
-        confirmButton = {
-            Button(onClick = onInstall) { Text("Install") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Later") }
-        }
+        confirmButton = { Button(onClick = onInstall) { Text("Install") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Later") } }
     )
 }

@@ -143,7 +143,7 @@ class BarcodeViewModel(
     fun startCountdown() {
         countdownJob?.cancel()
         countdownJob = viewModelScope.launch {
-            var remaining = refreshThresholdMs / 1000
+            var remaining = (refreshThresholdMs / 1000).toInt()
             while (isActive && remaining > 0) {
                 _uiState.value = _uiState.value.copy(countdownSeconds = remaining)
                 delay(1000)
