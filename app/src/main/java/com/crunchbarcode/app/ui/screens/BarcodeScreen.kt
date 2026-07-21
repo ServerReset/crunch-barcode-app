@@ -117,12 +117,12 @@ private fun ControlsRow(s: BarcodeUiState, vm: BarcodeViewModel) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Chip("Refresh", Icons.Default.Refresh) { vm.loadBarcode() }
             Chip("Copy", Icons.Default.ContentCopy) { vm.copyBarcodeToClipboard() }
-            Chip("Save", Icons.Default.SaveAlt) { vm.saveBarcodeToGallery() }
-            Chip("Share", Icons.Default.Share) { vm.shareBarcode() }
+            Chip("Save", Icons.Default.SaveAlt) { vm.saveToGallery() }
+            Chip("Share", Icons.Default.Share) { vm.share() }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Chip("Google Wallet", Icons.Default.AccountBalanceWallet, !s.isGooglePayLoading) { vm.loadGooglePayJwt() }
-            Chip("Samsung Wallet", Icons.Default.PhoneAndroid) { vm.trySamsungWallet() }
+            Chip("Samsung Wallet", Icons.Default.PhoneAndroid) { vm.tryWallet() }
             if (s.countdownSeconds > 0) {
                 val urgent = s.countdownSeconds < 60
                 SuggestionChip(onClick = {}, colors = SuggestionChipDefaults.suggestionChipColors(containerColor = if (urgent) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant),
