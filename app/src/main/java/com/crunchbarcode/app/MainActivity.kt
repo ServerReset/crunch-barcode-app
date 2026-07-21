@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -40,7 +41,7 @@ class MainActivity : FragmentActivity() {
                     if (bioState == BiometricState.Unlocked || bioState == BiometricState.Unavailable) ready = true
                 }
 
-                AnimatedContent(targetState = ready, transitionSpec = { fadeIn(300) togetherWith fadeOut(200) }, label = "") { r ->
+                AnimatedContent(targetState = ready, transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(200)) }, label = "") { r ->
                     if (r) {
                         NavHost(navController, "login") {
                             composable("login") {
@@ -61,6 +62,7 @@ class MainActivity : FragmentActivity() {
                                 Spacer(Modifier.height(8.dp))
                                 Text("Authenticate to view your barcode", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(Modifier.height(24.dp)); CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 3.dp)
+                            }
                         }
                     }
                 }
