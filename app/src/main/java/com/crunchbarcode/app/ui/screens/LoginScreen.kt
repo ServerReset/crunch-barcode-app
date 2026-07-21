@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -168,11 +169,30 @@ fun LoginScreen(
                         label = { Text("Server URL") },
                         singleLine = true,
                         shape = RoundedCornerShape(16.dp),
-                        supportingText = {
-                            Text("Default: ${CrunchApi.BASE_URL}", style = MaterialTheme.typography.labelSmall)
-                        },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Spacer(Modifier.height(8.dp))
+                    Text("Presets:", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(4.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            "🇺🇸 US" to CrunchApi.BASE_URL,
+                            "🇨🇦 Canada" to "https://vollgas.netpulse.com",
+                            "🌐 Fallback" to "https://api.netpulse.com"
+                        ).forEach { (label, url) ->
+                            SuggestionChip(
+                                onClick = { viewModel.onServerUrlChanged(url) },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                selected = state.serverUrl == url,
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = if (state.serverUrl == url)
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            )
+                        }
+                    }
                     Spacer(Modifier.height(8.dp))
                     if (state.isResolving) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
