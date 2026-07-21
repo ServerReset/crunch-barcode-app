@@ -6,7 +6,7 @@ import android.graphics.BitmapFactory
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.crunchbarcode.app.data.api.CrunchApi
-import com.crunchbarcode.app.data.api.SessionExpiredException
+import com.crunchbarcode.app.data.api.SessionExpired
 import com.crunchbarcode.app.data.model.LoginResponse
 import com.crunchbarcode.app.data.model.UserCredentials
 import com.google.zxing.BarcodeFormat
@@ -17,27 +17,28 @@ import java.io.FileOutputStream
 
 class CrunchRepository private constructor(ctx: Context) {
 
-    private val prefs = EncryptedSharedPreferences.create(ctx,
-        "crunch_secure", MasterKey.Builder(ctx).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+    private val prefs = EncryptedSharedPreferences.create(ctx, "crunch",
+        MasterKey.Builder(ctx).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM)
 
-    private val barcodeCache = File(ctx.cacheDir, "barcode_cache.png")
+    private val cacheDir = File(ctx.cacheDir, "barcode")
+    private val cacheFile = File(cacheDir, "barcode.png")
     private val api get() = CrunchApi.get()
 
     var savedCredentials: UserCredentials?
         get() {
             val l = prefs.getString("login", null) ?: return null
-            val p = prefs.getString("password", null) ?: return null
+            val p = prefs.getString("pass", null) ?: return null
             val u = prefs.getString("uuid", null) ?: return null
-            val s = prefs.getString("session", null) ?: return null
-            return UserCredentials(l, p, u, s, prefs.getString("first", null), prefs.getString("last", null))
+            val s = prefs.getString("sid", null) ?: return null
+            return UserCredentials(l, p, u, s, prefs.getString("fn", null), prefs.getString("ln", null))
         }
         private set(v) {
             if (v == null) prefs.edit().clear().apply()
-            else prefs.edit().putString("login", v.login).putString("password", v.password)
-                .putString("uuid", v.uuid).putString("session", v.sessionId)
-                .putString("first", v.firstName).putString("last", v.lastName).apply()
+            else prefs.edit().putString("login", v.login).putString("pass", v.password)
+                .putString("uuid", v.uuid).putString("sid", v.sessionId)
+                .putString("fn", v.firstName).putString("ln", v.lastName).apply()
         }
 
     val isLoggedIn: Boolean get() = savedCredentials != null
@@ -53,44 +54,45 @@ class CrunchRepository private constructor(ctx: Context) {
 
     fun loadBarcode(): Result<BarcodeResult> {
         val c = savedCredentials ?: return Result.failure(Exception("Not logged in"))
-        val result = api.getBarcode(c)
-        val finalResult = if (result.isFailure && result.exceptionOrNull() is SessionExpiredException) {
+        var result = api.getBarcode(c)
+        if (result.isFailure && result.exceptionOrNull() is SessionExpired) {
             val relogin = api.relogin()
             if (relogin.isSuccess) {
-                savedCredentials = c.copy(uuid = relogin.getOrThrow().uuid, sessionId = relogin.getOrThrow().sessionId)
-                api.getBarcode(savedCredentials!!)
-            } else result
-        } else result
-
-        return if (finalResult.isSuccess) {
-            val (value, _) = finalResult.getOrThrow()
-            genBitmap(value).fold(
-                onSuccess = { bmp -> Result.success(BarcodeResult(value, bmp)) },
-                onFailure = { Result.failure(it) }
-            )
-        } else Result.failure(finalResult.exceptionOrNull() ?: Exception("Unknown"))
+                val lr = relogin.getOrThrow()
+                savedCredentials = c.copy(uuid = lr.uuid, sessionId = lr.sessionId)
+                result = api.getBarcode(savedCredentials!!)
+            }
+        }
+        return result.fold(
+            onSuccess = { value ->
+                try { Result.success(BarcodeResult(value, renderBarcode(value))) }
+                catch (e: Exception) { Result.failure(e) }
+            },
+            onFailure = { Result.failure(it) }
+        )
     }
 
-    private fun genBitmap(value: String): Result<Bitmap> = try {
+    private fun renderBarcode(value: String): Bitmap {
         val hints = mapOf(EncodeHintType.MARGIN to 0, EncodeHintType.CHARACTER_SET to "ISO-8859-1")
-        val w = MultiFormatWriter()
-        val mx = try { w.encode(value, BarcodeFormat.QR_CODE, 512, 512, hints) }
-        catch (_: Exception) { w.encode(value, BarcodeFormat.CODE_128, 1024, 256, hints) }
+        val writer = MultiFormatWriter()
+        val mx = try { writer.encode(value, BarcodeFormat.QR_CODE, 512, 512, hints) }
+        catch (_: Exception) { writer.encode(value, BarcodeFormat.CODE_128, 1024, 256, hints) }
         val bmp = Bitmap.createBitmap(mx.width, mx.height, Bitmap.Config.ARGB_8888)
         val px = IntArray(mx.width * mx.height)
         for (y in 0 until mx.height) for (x in 0 until mx.width)
             px[y * mx.width + x] = if (mx[x, y]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
         bmp.setPixels(px, 0, mx.width, 0, 0, mx.width, mx.height)
-        FileOutputStream(barcodeCache).use { bmp.compress(Bitmap.CompressFormat.PNG, 85, it) }
-        Result.success(bmp)
-    } catch (e: Exception) { Result.failure(e) }
+        cacheDir.mkdirs()
+        FileOutputStream(cacheFile).use { bmp.compress(Bitmap.CompressFormat.PNG, 85, it) }
+        return bmp
+    }
 
-    fun getCachedBarcodeBitmap(): Bitmap? = try {
-        if (barcodeCache.exists()) BitmapFactory.decodeFile(barcodeCache.absolutePath) else null
+    fun getCachedBitmap(): Bitmap? = try {
+        if (cacheFile.exists()) BitmapFactory.decodeFile(cacheFile.path) else null
     } catch (_: Exception) { null }
 
-    fun getCachedBarcodeValue(): String? = try {
-        if (barcodeCache.exists()) prefs.getString("cached_value", null) else null
+    fun getCachedValue(): String? = try {
+        if (cacheFile.exists()) prefs.getString("cached_val", null) else null
     } catch (_: Exception) { null }
 
     fun getGooglePayJwt(): Result<String> {
@@ -98,7 +100,7 @@ class CrunchRepository private constructor(ctx: Context) {
         return api.getGooglePayJwt(c)
     }
 
-    fun logout() { savedCredentials = null; barcodeCache.delete() }
+    fun logout() { savedCredentials = null; cacheFile.delete() }
 
     data class BarcodeResult(val value: String, val bitmap: Bitmap)
 

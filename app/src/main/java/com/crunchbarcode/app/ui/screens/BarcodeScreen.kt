@@ -1,9 +1,6 @@
 package com.crunchbarcode.app.ui.screens
 
-import android.content.Intent
 import android.graphics.Bitmap
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
@@ -22,7 +19,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
@@ -30,54 +26,53 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.crunchbarcode.app.health.HealthData
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BarcodeScreen(vm: BarcodeViewModel, onLogout: () -> Unit) {
-    val s by vm.uiState.collectAsState()
+    val s by vm.ui.collectAsState()
     val uriHandler = LocalUriHandler.current; val sb = remember { SnackbarHostState() }
     val haptics = LocalHapticFeedback.current
 
-    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { vm.loadHealthData() }
-
-    LaunchedEffect(s.googlePayJwt) { s.googlePayJwt?.let { try { uriHandler.openUri("https://pay.google.com/gp/p/ui/pay?jwt=$it") } catch (_: Exception) {} } }
-    LaunchedEffect(s.countdownSeconds) { if (s.countdownSeconds <= 0 && s.barcodeValue != null) vm.startCountdown() }
+    LaunchedEffect(s.googlePayJwt) { s.googlePayJwt?.let {
+        try { uriHandler.openUri("https://pay.google.com/gp/p/ui/pay?jwt=$it") } catch (_: Exception) {} } }
+    LaunchedEffect(s.countdownSec) { if (s.countdownSec <= 0 && s.barcodeValue != null) vm.startCountdown() }
     LaunchedEffect(s.justCopied) { if (s.justCopied) { haptics.performHapticFeedback(HapticFeedbackType.LongPress); sb.showSnackbar("Copied") } }
 
-    if (s.installPrompt) InstallDialog({ vm.launchInstall() }, { vm.dismissInstallPrompt() })
+    if (s.installPrompt) InstallDialog({ vm.launchInstall() }, { vm.dismissInstall() })
 
     Scaffold(snackbarHost = { SnackbarHost(sb) }, topBar = {
         TopAppBar(title = {
-            Column { Text("Crunch", fontWeight = FontWeight.Bold); Text("Welcome${s.memberFirstName?.let { ", $it" } ?: ""}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }, actions = { IconButton(onClick = { vm.logout(); onLogout() }) { Icon(Icons.AutoMirrored.Filled.ExitToApp, "Sign out") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface))
+            Column { Text("Crunch", fontWeight = FontWeight.Bold)
+                Text("Hi${s.firstName?.let { ", $it" } ?: ""}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }, actions = { IconButton(onClick = { vm.logout(); onLogout() }) { Icon(Icons.AutoMirrored.Filled.ExitToApp, "Sign out") } },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface))
     }) { p ->
-        if (s.isLoading && s.barcodeBitmap == null) Box(Modifier.fillMaxSize().padding(p), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        if (s.isLoading && s.barcodeBitmap == null)
+            Box(Modifier.fillMaxSize().padding(p), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         else Column(Modifier.fillMaxSize().padding(p).padding(horizontal = 16.dp), verticalArrangement = Arrangement.SpaceEvenly) {
-            HealthCard(s.healthData, vm, permLauncher)
-            Spacer(Modifier.height(4.dp))
             val bmp = s.barcodeBitmap
             if (bmp != null) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { BarcodeCard(bmp, s.barcodeValue, vm) }
             else ErrorContent(s.error ?: "No barcode", vm::loadBarcode)
-            Spacer(Modifier.height(4.dp))
-            ControlsRow(s, vm)
+            Controls(s, vm)
             val u = s.update
-            if (!s.isUpdateChecking && u != null) UpdateBanner(u.latestVersion, s.isDownloading, s.downloadProgress, vm::downloadAndInstall)
+            if (u != null) UpdateBanner(u.latestVersion, s.isDownloading, s.downloadProgress, vm::downloadAndInstall)
         }
     }
 }
 
 @Composable
 private fun BarcodeCard(bmp: Bitmap, value: String?, vm: BarcodeViewModel) {
-    val pulse = rememberInfiniteTransition().animateFloat(0.88f, 1f, infiniteRepeatable(tween(1500, easing = EaseInOutCubic), RepeatMode.Reverse), label = "p")
+    val pulse = rememberInfiniteTransition().animateFloat(0.88f, 1f,
+        infiniteRepeatable(tween(1500, easing = EaseInOutCubic), RepeatMode.Reverse), label = "p")
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), elevation = CardDefaults.cardElevation(4.dp)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Image(bitmap = bmp.asImageBitmap(), null, Modifier.fillMaxWidth().padding(16.dp).graphicsLayer(alpha = pulse.value), contentScale = ContentScale.Fit)
-            value?.let { v ->
+            Image(bitmap = bmp.asImageBitmap(), null, Modifier.fillMaxWidth().padding(16.dp)
+                .graphicsLayer(alpha = pulse.value), contentScale = ContentScale.Fit)
+            value?.let {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
-                    Text(v, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
-                    IconButton(onClick = vm::copyBarcodeToClipboard, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.ContentCopy, "Copy", Modifier.size(18.dp)) }
+                    Text(it, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+                    IconButton(onClick = vm::copy, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.ContentCopy, "Copy", Modifier.size(18.dp)) }
                 }
             }
         }
@@ -85,55 +80,26 @@ private fun BarcodeCard(bmp: Bitmap, value: String?, vm: BarcodeViewModel) {
 }
 
 @Composable
-private fun HealthCard(d: HealthData, vm: BarcodeViewModel, launcher: androidx.activity.result.ActivityResultLauncher<Intent>) {
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
-        if (d.isLoading) Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) }
-        else if (d.hasData) Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            Stat(Icons.Default.DirectionsWalk, formatNum(d.stepsToday), "Today")
-            Stat(Icons.Default.Speed, "${d.workoutsThisWeek}", "Workouts")
-            Stat(Icons.Default.LocalFireDepartment, "${d.caloriesToday.toInt()}", "Cal")
-            Stat(Icons.Default.FitnessCenter, d.lastWorkoutName?.take(8) ?: "OK", d.lastWorkoutDate?.take(5) ?: "Ready")
-        }
-        else if (d.isAvailable && !d.isAuthorized) Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.MonitorHeart, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(8.dp)); Text("Health Connect", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-            FilledTonalButton(onClick = { vm.getHealthPermissionIntent()?.let { launcher.launch(Intent.createChooser(it, "Health Connect")) } }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text("Connect", style = MaterialTheme.typography.labelSmall) }
-        }
-    }
-}
-
-@Composable
-private fun Stat(icon: androidx.compose.ui.graphics.vector.ImageVector, v: String, l: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-        Text(v, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-        Text(l, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun ControlsRow(s: BarcodeUiState, vm: BarcodeViewModel) {
+private fun Controls(s: UiState, vm: BarcodeViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Chip("Refresh", Icons.Default.Refresh) { vm.loadBarcode() }
-            Chip("Copy", Icons.Default.ContentCopy) { vm.copyBarcodeToClipboard() }
+            Chip("Copy", Icons.Default.ContentCopy) { vm.copy() }
             Chip("Save", Icons.Default.SaveAlt) { vm.saveToGallery() }
             Chip("Share", Icons.Default.Share) { vm.share() }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip("Google Wallet", Icons.Default.AccountBalanceWallet, !s.isGooglePayLoading) { vm.loadGooglePayJwt() }
+            Chip("Google Wallet", Icons.Default.AccountBalanceWallet, !s.isWalletLoading) { vm.loadWallet() }
             Chip("Samsung Wallet", Icons.Default.PhoneAndroid) { vm.tryWallet() }
-            if (s.countdownSeconds > 0) {
-                val urgent = s.countdownSeconds < 60
-                SuggestionChip(onClick = {}, colors = SuggestionChipDefaults.suggestionChipColors(containerColor = if (urgent) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant),
-                    label = { Text("${s.countdownSeconds / 60}m ${s.countdownSeconds % 60}s", style = MaterialTheme.typography.labelSmall, color = if (urgent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) })
+            if (s.countdownSec > 0) {
+                val u = s.countdownSec < 60
+                SuggestionChip(onClick = {}, colors = SuggestionChipDefaults.suggestionChipColors(
+                    containerColor = if (u) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant),
+                    label = { Text("${s.countdownSec / 60}m ${s.countdownSec % 60}s", style = MaterialTheme.typography.labelSmall,
+                        color = if (u) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) })
             }
         }
-        val lastRef = s.lastRefreshed
-        if (lastRef != null) {
-            Text("Updated $lastRef", style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())
-        }
+        s.lastRefreshed?.let { Text("Updated $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 
@@ -169,5 +135,3 @@ private fun InstallDialog(onInstall: () -> Unit, onDismiss: () -> Unit) {
         text = { Text("Tap More Details → Install Anyway, then confirm with biometrics.") },
         confirmButton = { Button(onClick = onInstall) { Text("Install") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Later") } })
 }
-
-private fun formatNum(n: Int) = if (n >= 1000) "${n / 1000}.${(n % 1000) / 100}k" else n.toString()
