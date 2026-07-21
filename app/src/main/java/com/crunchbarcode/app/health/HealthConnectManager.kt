@@ -118,8 +118,14 @@ class HealthConnectManager(private val context: Context) {
 
             val workoutCount = workoutsResp?.records?.size ?: 0
             val lastWorkout = workoutsResp?.records?.maxByOrNull { it.startTime }
-            val lastWorkoutName = lastWorkout?.exerciseType?.let {
-                it.name.lowercase().replace("_", " ").replaceFirstChar { c -> c.uppercase() }
+            val lastWorkoutName = lastWorkout?.exerciseType?.let { type ->
+                val names = ExerciseSessionRecord::class.java.fields
+                    .filter { it.name.startsWith("EXERCISE_TYPE_") && it.getInt(null) == type }
+                    .map { it.name.removePrefix("EXERCISE_TYPE_")
+                        .lowercase().replace("_", " ")
+                        .replaceFirstChar { c -> c.uppercase() }
+                    }
+                names.firstOrNull()
             }
             val lastWorkoutDate = lastWorkout?.startTime?.atZone(ZoneId.systemDefault())?.toLocalDate()?.toString()
 

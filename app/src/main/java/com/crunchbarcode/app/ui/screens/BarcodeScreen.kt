@@ -102,11 +102,14 @@ fun BarcodeScreen(viewModel: BarcodeViewModel, onLogout: () -> Unit) {
 
                 Spacer(Modifier.height(4.dp))
 
-                state.barcodeBitmap?.let { bmp ->
+                val bmp = state.barcodeBitmap
+                if (bmp != null) {
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         BarcodeImageCard(bmp, state.barcodeValue, viewModel)
                     }
-                } ?: ErrorContent(state.error ?: "No barcode", viewModel::loadBarcode)
+                } else {
+                    ErrorContent(state.error ?: "No barcode", viewModel::loadBarcode)
+                }
 
                 Spacer(Modifier.height(4.dp))
 
