@@ -40,7 +40,7 @@ fun BarcodeScreen(vm: BarcodeViewModel, onLogout: () -> Unit) {
     val uriHandler = LocalUriHandler.current; val sb = remember { SnackbarHostState() }
     val haptics = LocalHapticFeedback.current
 
-    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { vm.loadHealthData() }
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { vm.loadHealthData() }
 
     LaunchedEffect(s.googlePayJwt) { s.googlePayJwt?.let { try { uriHandler.openUri("https://pay.google.com/gp/p/ui/pay?jwt=$it") } catch (_: Exception) {} } }
     LaunchedEffect(s.countdownSeconds) { if (s.countdownSeconds <= 0 && s.barcodeValue != null) vm.startCountdown() }

@@ -78,7 +78,7 @@ class CrunchRepository private constructor(context: Context) {
 
     fun getGooglePayJwt(): Result<String> {
         val creds = savedCredentials ?: return Result.failure(Exception("Not logged in"))
-        return api.getGooglePayBarcodeJwt(creds)
+        return api.getGooglePayJwt(creds)
     }
 
     fun logout() {

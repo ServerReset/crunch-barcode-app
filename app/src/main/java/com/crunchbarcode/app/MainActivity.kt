@@ -76,7 +76,7 @@ class MainActivity : FragmentActivity() {
                                     factory = BarcodeViewModel.Factory(application, app.repository)
                                 )
                                 BarcodeScreen(
-                                    viewModel = barcodeVm,
+                                    vm = barcodeVm,
                                     onLogout = {
                                         navController.navigate("login") {
                                             popUpTo("barcode") { inclusive = true }
