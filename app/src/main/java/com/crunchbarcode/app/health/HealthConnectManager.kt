@@ -8,14 +8,14 @@ import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
-import androidx.health.connect.client.request.AggregateGroupRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
-import androidx.health.connect.client.units.Energy
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
+import kotlin.math.roundToInt
 
 data class HealthData(
     val stepsToday: Int = 0,
@@ -50,12 +50,9 @@ class HealthConnectManager(private val context: Context) {
         PermissionController.createRequestPermissionResultContract().createIntent(it, permissions)
     }
 
-    suspend fun hasPermissions(): Boolean {
-        val c = client ?: return false
-        return try {
-            c.permissionController.getGrantedPermissions().containsAll(permissions)
-        } catch (_: Exception) { false }
-    }
+    suspend fun hasPermissions(): Boolean = try {
+        client?.permissionController?.getGrantedPermissions()?.containsAll(permissions) ?: false
+    } catch (_: Exception) { false }
 
     suspend fun loadHealthData(): HealthData {
         val c = client ?: return HealthData(isAvailable = false)
@@ -63,59 +60,34 @@ class HealthConnectManager(private val context: Context) {
 
         return try {
             val today = LocalDate.now()
-            val startOfDay = today.atStartOfDay(ZoneId.systemDefault()).toInstant()
-            val endOfDay = today.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant()
-            val startOfWeek = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-                .atStartOfDay(ZoneId.systemDefault()).toInstant()
-
-            val todayRange = TimeRangeFilter.between(startOfDay, endOfDay)
-            val weekRange = TimeRangeFilter.between(startOfWeek, endOfDay)
+            val zone = ZoneId.systemDefault()
+            val dayStart = today.atStartOfDay(zone).toInstant()
+            val dayEnd = today.plusDays(1).atStartOfDay(zone).toInstant()
+            val weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).atStartOfDay(zone).toInstant()
+            val dayRange = TimeRangeFilter.between(dayStart, dayEnd)
+            val weekRange = TimeRangeFilter.between(weekStart, dayEnd)
 
             val stepsToday = try {
-                val resp = c.aggregateGroup(
-                    AggregateGroupRequest(
-                        StepsRecord::class,
-                        todayRange,
-                        setOf(StepsRecord.COUNT_TOTAL)
-                    )
-                )
-                resp[StepsRecord.COUNT_TOTAL]?.inSteps?.toInt() ?: 0
-            } catch (_: Exception) { 0 }
+                c.readRecords(ReadRecordsRequest(StepsRecord::class, dayRange)).records
+                    .sumOf { it.count }
+            } catch (_: Exception) { 0L }.toInt()
 
             val stepsWeek = try {
-                val resp = c.aggregateGroup(
-                    AggregateGroupRequest(
-                        StepsRecord::class,
-                        weekRange,
-                        setOf(StepsRecord.COUNT_TOTAL)
-                    )
-                )
-                resp[StepsRecord.COUNT_TOTAL]?.inSteps?.toInt() ?: 0
-            } catch (_: Exception) { 0 }
+                c.readRecords(ReadRecordsRequest(StepsRecord::class, weekRange)).records
+                    .sumOf { it.count }
+            } catch (_: Exception) { 0L }.toInt()
 
             val caloriesToday = try {
-                val resp = c.aggregateGroup(
-                    AggregateGroupRequest(
-                        TotalCaloriesBurnedRecord::class,
-                        todayRange,
-                        setOf(TotalCaloriesBurnedRecord.CALORIES_TOTAL)
-                    )
-                )
-                val energy = resp[TotalCaloriesBurnedRecord.CALORIES_TOTAL]
-                energy?.inCalories ?: 0.0
+                c.readRecords(ReadRecordsRequest(TotalCaloriesBurnedRecord::class, dayRange)).records
+                    .sumOf { it.energy.inCalories }.roundToInt().toDouble()
             } catch (_: Exception) { 0.0 }
 
-            val workoutsResp = try {
-                c.readRecords(
-                    ReadRecordsRequest(
-                        ExerciseSessionRecord::class,
-                        weekRange
-                    )
-                )
-            } catch (_: Exception) { null }
+            val workouts = try {
+                c.readRecords(ReadRecordsRequest(ExerciseSessionRecord::class, weekRange)).records
+            } catch (_: Exception) { emptyList<ExerciseSessionRecord>() }
 
-            val workoutCount = workoutsResp?.records?.size ?: 0
-            val lastWorkout = workoutsResp?.records?.maxByOrNull { it.startTime }
+            val workoutCount = workouts.size
+            val lastWorkout = workouts.maxByOrNull { it.startTime }
             val lastWorkoutName = lastWorkout?.exerciseType?.let { type ->
                 ExerciseSessionRecord::class.java.declaredFields
                     .filter { it.name.startsWith("EXERCISE_TYPE_") }
@@ -124,18 +96,10 @@ class HealthConnectManager(private val context: Context) {
                     ?.lowercase()?.replace("_", " ")
                     ?.replaceFirstChar { c -> c.uppercase() }
             }
-            val lastWorkoutDate = lastWorkout?.startTime?.atZone(ZoneId.systemDefault())?.toLocalDate()?.toString()
+            val lastWorkoutDate = lastWorkout?.startTime?.atZone(zone)?.toLocalDate()?.toString()
 
-            HealthData(
-                stepsToday = stepsToday,
-                stepsWeek = stepsWeek,
-                workoutsThisWeek = workoutCount,
-                caloriesToday = caloriesToday,
-                lastWorkoutName = lastWorkoutName,
-                lastWorkoutDate = lastWorkoutDate,
-                isAvailable = true,
-                isAuthorized = true
-            )
+            HealthData(stepsToday, stepsWeek, workoutCount, caloriesToday,
+                lastWorkoutName, lastWorkoutDate, true, true)
         } catch (e: Exception) {
             HealthData(isAvailable = true, isAuthorized = true, error = e.localizedMessage)
         }
