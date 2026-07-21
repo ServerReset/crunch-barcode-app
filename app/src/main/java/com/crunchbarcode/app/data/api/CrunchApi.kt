@@ -99,10 +99,10 @@ class CrunchApi(private val baseUrl: String = BASE_URL) {
             }
         } catch (e: IOException) {
             android.util.Log.e("CrunchAPI", "IO error: ${e.message}", e)
-            Result.failure(Exception("Network error: ${e.message ?: "could not reach server"}"))
+            return Result.failure(Exception("Network error: ${e.message ?: "could not reach server"}"))
         } catch (e: Exception) {
             android.util.Log.e("CrunchAPI", "Unexpected error: ${e.message}", e)
-            Result.failure(Exception("Error: ${e.message ?: e.javaClass.simpleName}"))
+            return Result.failure(Exception("Error: ${e.message ?: e.javaClass.simpleName}"))
         }
     }
 
