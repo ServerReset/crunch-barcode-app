@@ -203,30 +203,46 @@ private fun StatItem(icon: androidx.compose.ui.graphics.vector.ImageVector, valu
 
 @Composable
 private fun ControlsRow(state: BarcodeUiState, vm: BarcodeViewModel) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        val secs = state.countdownSeconds; val urgent = secs < 60
-        SuggestionChip(onClick = vm::loadBarcode, icon = {
-            Icon(Icons.Default.Refresh, null, Modifier.size(16.dp))
-        }, label = { Text("Refresh", style = MaterialTheme.typography.labelSmall) })
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SuggestionChip(onClick = vm::loadBarcode, icon = {
+                Icon(Icons.Default.Refresh, null, Modifier.size(16.dp))
+            }, label = { Text("Refresh", style = MaterialTheme.typography.labelSmall) })
 
-        SuggestionChip(onClick = vm::copyBarcodeToClipboard, icon = {
-            Icon(Icons.Default.ContentCopy, null, Modifier.size(16.dp))
-        }, label = { Text("Copy", style = MaterialTheme.typography.labelSmall) })
+            SuggestionChip(onClick = vm::copyBarcodeToClipboard, icon = {
+                Icon(Icons.Default.ContentCopy, null, Modifier.size(16.dp))
+            }, label = { Text("Copy", style = MaterialTheme.typography.labelSmall) })
 
-        SuggestionChip(onClick = vm::loadGooglePayJwt, enabled = !state.isGooglePayLoading, icon = {
-            if (state.isGooglePayLoading) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-            else Icon(Icons.Default.AccountBalanceWallet, null, Modifier.size(16.dp))
-        }, label = { Text("Wallet", style = MaterialTheme.typography.labelSmall) })
+            SuggestionChip(onClick = vm::saveBarcodeToGallery, icon = {
+                Icon(Icons.Default.SaveAlt, null, Modifier.size(16.dp))
+            }, label = { Text("Save", style = MaterialTheme.typography.labelSmall) })
 
-        if (secs > 0) {
-            SuggestionChip(onClick = {},
-                colors = SuggestionChipDefaults.suggestionChipColors(
-                    containerColor = if (urgent) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant),
-                label = {
-                    Text("${secs / 60}m ${secs % 60}s", style = MaterialTheme.typography.labelSmall,
-                        color = if (urgent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            )
+            SuggestionChip(onClick = vm::shareBarcode, icon = {
+                Icon(Icons.Default.Share, null, Modifier.size(16.dp))
+            }, label = { Text("Share", style = MaterialTheme.typography.labelSmall) })
+        }
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SuggestionChip(onClick = vm::loadGooglePayJwt, enabled = !state.isGooglePayLoading, icon = {
+                if (state.isGooglePayLoading) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                else Icon(Icons.Default.AccountBalanceWallet, null, Modifier.size(16.dp))
+            }, label = { Text("Google Wallet", style = MaterialTheme.typography.labelSmall) })
+
+            SuggestionChip(onClick = vm::trySamsungWallet, icon = {
+                Icon(Icons.Default.PhoneAndroid, null, Modifier.size(16.dp))
+            }, label = { Text("Samsung Wallet", style = MaterialTheme.typography.labelSmall) })
+
+            val secs = state.countdownSeconds; val urgent = secs < 60
+            if (secs > 0) {
+                SuggestionChip(onClick = {},
+                    colors = SuggestionChipDefaults.suggestionChipColors(
+                        containerColor = if (urgent) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant),
+                    label = {
+                        Text("${secs / 60}m ${secs % 60}s", style = MaterialTheme.typography.labelSmall,
+                            color = if (urgent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                )
+            }
         }
     }
 }

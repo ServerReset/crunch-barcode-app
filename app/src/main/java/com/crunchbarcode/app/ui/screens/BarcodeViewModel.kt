@@ -3,10 +3,14 @@ package com.crunchbarcode.app.ui.screens
 import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -155,6 +159,80 @@ class BarcodeViewModel(
                 onSuccess = { jwt -> _uiState.value = _uiState.value.copy(googlePayJwt = jwt, isGooglePayLoading = false) },
                 onFailure = { e -> _uiState.value = _uiState.value.copy(isGooglePayLoading = false, error = "Google Wallet: ${e.localizedMessage}") }
             )
+        }
+    }
+
+    fun saveBarcodeToGallery() {
+        val bmp = _uiState.value.barcodeBitmap ?: return
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val filename = "CrunchBarcode_${System.currentTimeMillis()}.png"
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.Images.Media.DISPLAY_NAME, filename)
+                        put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            put(MediaStore.Images.Media.IS_PENDING, 1)
+                            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/CrunchBarcode")
+                        }
+                    }
+                    val uri = application.contentResolver.insert(
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues
+                    ) ?: throw Exception("Failed to create media entry")
+                    application.contentResolver.openOutputStream(uri)?.use {
+                        bmp.compress(Bitmap.CompressFormat.PNG, 100, it)
+                    } ?: throw Exception("Failed to write image")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        contentValues.clear()
+                        contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+                        application.contentResolver.update(uri, contentValues, null, null)
+                    }
+                    Result.success(Unit)
+                } catch (e: Exception) {
+                    Result.failure(e)
+                }
+            }
+            result.fold(
+                onSuccess = { _uiState.value = _uiState.value.copy(justCopied = false) },
+                onFailure = { e -> _uiState.value = _uiState.value.copy(error = "Save failed: ${e.localizedMessage}") }
+            )
+        }
+    }
+
+    fun shareBarcode() {
+        val bmp = _uiState.value.barcodeBitmap ?: return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    val dir = File(application.cacheDir, "shared_barcodes")
+                    dir.mkdirs()
+                    val file = File(dir, "crunch_barcode.png")
+                    FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+
+                    val uri = FileProvider.getUriForFile(application, "${application.packageName}.fileprovider", file)
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/png"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    application.startActivity(Intent.createChooser(intent, "Share barcode").apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    })
+                } catch (_: Exception) { }
+            }
+        }
+    }
+
+    fun trySamsungWallet() {
+        try {
+            val intent = Intent().apply {
+                action = Intent.ACTION_VIEW
+                data = Uri.parse("samsungwallet://addPass")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            application.startActivity(intent)
+        } catch (_: Exception) {
+            shareBarcode()
         }
     }
 
