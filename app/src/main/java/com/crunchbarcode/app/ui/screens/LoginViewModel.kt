@@ -48,8 +48,12 @@ class LoginViewModel(
 
     fun login() {
         val state = _uiState.value
-        if (state.login.isBlank() || state.password.isBlank()) {
-            _uiState.value = state.copy(error = "Please enter your email and password")
+        if (state.login.isBlank()) {
+            _uiState.value = state.copy(error = "Please enter your email or member ID")
+            return
+        }
+        if (state.password.isBlank()) {
+            _uiState.value = state.copy(error = "Please enter your password")
             return
         }
 
@@ -63,11 +67,18 @@ class LoginViewModel(
                 onFailure = { e ->
                     val msg = when (e) {
                         is CrunchAuthException -> when {
-                            e.httpCode == 401 -> "Invalid credentials. Please try again."
-                            e.httpCode == 400 -> "Validation error: ${e.message}"
-                            else -> "Login failed: ${e.message}"
+                            e.httpCode == 401 && e.apiCause == "loginFailureAttemptsExceeded" ->
+                                "Account temporarily locked due to too many attempts. Try again later."
+                            e.httpCode == 401 && e.apiCause == "userAccountTemporarilyLocked" ->
+                                "Account locked. Please wait before trying again."
+                            e.httpCode == 401 -> "Invalid email or password. Please try again."
+                            e.httpCode == 400 -> "Please check your information and try again."
+                            e.httpCode == 403 -> "Account requires migration. Please contact support."
+                            else -> "Login failed (${e.httpCode}): ${e.apiMessage}"
                         }
-                        else -> "Network error: ${e.localizedMessage ?: "Unknown error"}"
+                        is java.net.UnknownHostException -> "No internet connection. Check your network."
+                        is java.net.SocketTimeoutException -> "Connection timed out. Please try again."
+                        else -> e.localizedMessage ?: "An unexpected error occurred"
                     }
                     _uiState.value = _uiState.value.copy(isLoading = false, error = msg)
                 }

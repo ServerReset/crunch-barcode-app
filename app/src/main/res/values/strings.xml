@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Crunch Barcode</string>
+    <string name="widget_description">Shows your Crunch Fitness barcode number. Tap to open the app.</string>
+</resources>
