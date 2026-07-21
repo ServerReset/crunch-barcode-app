@@ -136,6 +136,6 @@ class CrunchApi(private val baseUrl: String = BASE_URL) {
 
 class CrunchAuthException(
     val httpCode: Int,
-    val message: String,
-    val cause: String
-) : Exception("Login failed ($httpCode): $message")
+    val apiMessage: String,
+    val apiCause: String
+) : Exception("Login failed ($httpCode): $apiMessage")

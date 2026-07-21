@@ -49,7 +49,6 @@ class CrunchRepository private constructor(context: Context) {
                     .putString(KEY_FIRST_NAME, value.firstName)
                     .putString(KEY_LAST_NAME, value.lastName)
                     .apply()
-                api.sessionId = value.sessionId
             }
         }
 
