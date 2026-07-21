@@ -1,0 +1,2 @@
+-keep class com.crunchbarcode.app.data.model.** { *; }
+-keepattributes *Annotation*
