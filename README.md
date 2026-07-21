@@ -10,6 +10,12 @@ A lightweight Android app that logs into your Crunch Fitness account and generat
 - **Encrypted credential storage** via Android Keystore
 - **Material 3** design with dynamic color support
 
+## Download
+
+Grab the latest APK from the [Releases page](https://github.com/ServerReset/crunch-barcode-app/releases).
+
+The APK is signed with V1, V2, and V3 signature schemes and zipaligned. If installation is blocked, tap **More Details** → **Install Anyway**.
+
 ## How It Works
 
 The app calls the same Netpulse REST API that the official Crunch Fitness app uses:
@@ -35,9 +41,17 @@ Grab the latest APK from the [Releases page](https://github.com/YOUR_USERNAME/cr
 
 ### Build
 ```bash
-git clone https://github.com/YOUR_USERNAME/crunch-barcode-app.git
+git clone https://github.com/ServerReset/crunch-barcode-app.git
 cd crunch-barcode-app
-./gradlew assembleDebug
+
+# Generate a release keystore (only needed once)
+keytool -genkey -v -keystore app/release.keystore -alias release \
+  -keyalg RSA -keysize 2048 -validity 10000 \
+  -storepass android -keypass android \
+  -dname "CN=Dev, OU=Dev, O=CrunchBarcode, L=City, S=State, C=US"
+
+# Build
+KEYSTORE_PASSWORD=android KEY_ALIAS=release KEY_PASSWORD=android ./gradlew assembleRelease
 ```
 
 ### Google Wallet (Optional)

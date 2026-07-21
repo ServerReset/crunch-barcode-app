@@ -29,51 +29,37 @@ jobs:
       - name: Generate Gradle Wrapper
         run: gradle wrapper --gradle-version 8.7
 
-      - name: Build release APK
-        run: ./gradlew assembleRelease
-
-      - name: Sign APK (production key or debug fallback)
-        env:
-          SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - name: Create release keystore
         run: |
-          UNSIGNED_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
-          if [ ! -f "$UNSIGNED_APK" ]; then
-            echo "No unsigned APK found"
-            exit 1
-          fi
-
-          SIGNED_APK="app/build/outputs/apk/release/app-release.apk"
-
-          if [ -n "$SIGNING_KEY" ]; then
-            echo "$SIGNING_KEY" | base64 -d > keystore.jks
-            jarsigner -verbose -keystore keystore.jks \
-              -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" \
-              -digestalg SHA-256 -sigalg SHA256withRSA \
-              "$UNSIGNED_APK" "$KEY_ALIAS"
-            rm -f keystore.jks
+          if [ -n "${{ secrets.ANDROID_SIGNING_KEY }}" ]; then
+            echo "${{ secrets.ANDROID_SIGNING_KEY }}" | base64 -d > app/release.keystore
           else
-            echo "No signing key secret set. Signing with ephemeral debug key..."
-            keytool -genkey -v -keystore debug.keystore -alias debug \
+            echo "No signing key secret. Generating ephemeral debug keystore..."
+            keytool -genkey -v -keystore app/release.keystore \
+              -alias release \
               -keyalg RSA -keysize 2048 -validity 10000 \
               -storepass android -keypass android \
-              -dname "CN=Debug, OU=Dev, O=CrunchBarcode, L=City, S=State, C=US"
-            jarsigner -verbose -keystore debug.keystore \
-              -storepass android -keypass android \
-              -digestalg SHA-256 -sigalg SHA256withRSA \
-              "$UNSIGNED_APK" debug
-            rm -f debug.keystore
+              -dname "CN=CrunchBarcode, OU=Dev, O=CrunchBarcode, L=City, S=State, C=US"
           fi
 
-          cp "$UNSIGNED_APK" "$SIGNED_APK"
+      - name: Build signed APK
+        env:
+          KEYSTORE_PASSWORD: android
+          KEY_ALIAS: release
+          KEY_PASSWORD: android
+        run: ./gradlew assembleRelease
+
+      - name: Rename and verify APK
+        run: |
+          ls -la app/build/outputs/apk/release/
+          # Rename for cleaner release
+          cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/CrunchBarcode-v1.0.0.apk
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: crunch-barcode-apk
-          path: app/build/outputs/apk/release/*.apk
+          path: app/build/outputs/apk/release/CrunchBarcode-v*.apk
           compression-level: 0
 
   release:
@@ -94,16 +80,18 @@ jobs:
           tag_name: v${{ github.run_number }}
           name: Release v${{ github.run_number }}
           body: |
-            ## Crunch Barcode App
+            ## Crunch Barcode v${{ github.run_number }}
 
-            Automated build from commit ${{ github.sha }}.
+            - APK is signed with V1, V2, and V3 signature schemes
+            - Zipaligned for proper installation
+            - Targets Android 10+ (API 26), built against API 35
 
-            ### How to install
-            1. Download the APK file below
+            ### Install
+            1. Download **CrunchBarcode-v1.0.0.apk**
             2. Open it on your Android device
-            3. If prompted to scan the app, tap **More Details** → **Install Anyway**
+            3. Tap **More Details** → **Install Anyway** if prompted to scan
             4. Confirm with your biometrics or device PIN
           files: |
-            *.apk
+            CrunchBarcode-*.apk
           draft: false
           prerelease: false
