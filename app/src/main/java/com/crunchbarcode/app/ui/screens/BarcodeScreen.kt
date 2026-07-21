@@ -1,14 +1,16 @@
 package com.crunchbarcode.app.ui.screens
 
+import android.content.Intent
 import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.*
@@ -21,6 +23,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
@@ -28,19 +31,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.crunchbarcode.app.health.HealthData
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BarcodeScreen(
-    viewModel: BarcodeViewModel,
-    onLogout: () -> Unit
-) {
+fun BarcodeScreen(viewModel: BarcodeViewModel, onLogout: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
     val uriHandler = LocalUriHandler.current
     val snackbarHostState = remember { SnackbarHostState() }
     val haptics = LocalHapticFeedback.current
-    val scrollState = rememberScrollState()
+    val context = LocalContext.current
+
+    val healthPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { viewModel.loadHealthData() }
 
     LaunchedEffect(state.googlePayJwt) {
         state.googlePayJwt?.let { jwt ->
@@ -50,23 +55,18 @@ fun BarcodeScreen(
     }
 
     LaunchedEffect(state.countdownSeconds) {
-        if (state.countdownSeconds <= 0 && state.barcodeValue != null) {
-            viewModel.startCountdown()
-        }
+        if (state.countdownSeconds <= 0 && state.barcodeValue != null) viewModel.startCountdown()
     }
 
     LaunchedEffect(state.justCopied) {
         if (state.justCopied) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            snackbarHostState.showSnackbar("Barcode copied to clipboard")
+            snackbarHostState.showSnackbar("Barcode copied")
         }
     }
 
     if (state.installPrompt) {
-        InstallDialog(
-            onInstall = { viewModel.launchInstall() },
-            onDismiss = { viewModel.dismissInstallPrompt() }
-        )
+        InstallDialog(onInstall = { viewModel.launchInstall() }, onDismiss = { viewModel.dismissInstallPrompt() })
     }
 
     Scaffold(
@@ -75,11 +75,9 @@ fun BarcodeScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("My Barcode", style = MaterialTheme.typography.titleLarge)
-                        state.memberFirstName?.let {
-                            Text("Welcome back, $it", style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        Text("Crunch", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("Welcome${state.memberFirstName?.let { ", $it" } ?: ""}",
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 actions = {
@@ -87,313 +85,172 @@ fun BarcodeScreen(
                         Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Sign out")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(scrollState)
-                .padding(horizontal = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            if (state.isLoading && state.barcodeBitmap == null) {
-                Box(
-                    modifier = Modifier.fillMaxSize().weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    ShimmerLoading()
+        if (state.isLoading && state.barcodeBitmap == null) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.SpaceEvenly
+            ) {
+                HealthCard(state.healthData, viewModel, healthPermissionLauncher)
+
+                Spacer(Modifier.height(4.dp))
+
+                state.barcodeBitmap?.let { bmp ->
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        BarcodeImageCard(bmp, state.barcodeValue, viewModel)
+                    }
+                } ?: ErrorContent(state.error ?: "No barcode", viewModel::loadBarcode)
+
+                Spacer(Modifier.height(4.dp))
+
+                ControlsRow(state, viewModel)
+
+                val up = state.update
+                if (!state.isUpdateChecking && up != null) {
+                    Spacer(Modifier.height(4.dp))
+                    UpdateBanner(up.latestVersion, state.isDownloading, state.downloadProgress, viewModel::downloadAndInstall)
                 }
-            } else {
-                AnimatedContent(
-                    targetState = state.error != null && state.barcodeBitmap == null,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
-                    label = "barcode_content"
-                ) { isError ->
-                    if (isError) {
-                        ErrorContent(state.error ?: "", viewModel::loadBarcode)
-                    } else {
-                        BarcodeContent(state, viewModel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BarcodeImageCard(bmp: Bitmap, value: String?, vm: BarcodeViewModel) {
+    val pulse = rememberInfiniteTransition().animateFloat(0.88f, 1f,
+        infiniteRepeatable(tween(1500, easing = EaseInOutCubic), RepeatMode.Reverse), label = "pulse")
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(4.dp)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Image(bitmap = bmp.asImageBitmap(), contentDescription = "Barcode",
+                modifier = Modifier.fillMaxWidth().padding(16.dp).graphicsLayer(alpha = pulse.value),
+                contentScale = ContentScale.Fit)
+            value?.let { v ->
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
+                    Text(v, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                        letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+                    IconButton(onClick = vm::copyBarcodeToClipboard, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy", modifier = Modifier.size(18.dp))
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            val updateState = state.update
-            if (!state.isUpdateChecking && updateState != null) {
-                UpdateBanner(
-                    version = updateState.latestVersion,
-                    isDownloading = state.isDownloading,
-                    progress = state.downloadProgress,
-                    onUpdate = viewModel::downloadAndInstall
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
 
 @Composable
-private fun BarcodeContent(
-    state: BarcodeUiState,
-    viewModel: BarcodeViewModel
-) {
-    Spacer(modifier = Modifier.height(12.dp))
-
-    state.barcodeBitmap?.let { bitmap ->
-        BarcodeImageCard(bitmap = bitmap)
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        state.barcodeValue?.let { value ->
-            BarcodeValueCard(value = value)
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                CountdownChip(seconds = state.countdownSeconds)
-                CopyChip(onCopy = viewModel::copyBarcodeToClipboard)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        ActionButtons(
-            onRefresh = viewModel::loadBarcode,
-            onGooglePay = viewModel::loadGooglePayJwt,
-            isGooglePayLoading = state.isGooglePayLoading
-        )
-    }
-}
-
-@Composable
-private fun BarcodeImageCard(bitmap: Bitmap) {
-    val infiniteTransition = rememberInfiniteTransition()
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = EaseInOutCubic),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "barcode_pulse"
-    )
+private fun HealthCard(data: HealthData, vm: BarcodeViewModel, launcher: Any) {
+    @Suppress("UNCHECKED_CAST")
+    val permLauncher = launcher as androidx.activity.result.ActivityResultLauncher<Intent>
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = "Member barcode",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-                    .graphicsLayer(alpha = alpha),
-                contentScale = ContentScale.Fit
-            )
-        }
-    }
-}
-
-@Composable
-private fun BarcodeValueCard(value: String) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-        )
-    ) {
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            textAlign = TextAlign.Center,
-            letterSpacing = 2.sp
-        )
-    }
-}
-
-@Composable
-private fun CountdownChip(seconds: Int) {
-    val minutes = seconds / 60
-    val secs = seconds % 60
-    val isUrgent = seconds < 60
-
-    SuggestionChip(
-        onClick = {},
-        icon = {
-            Icon(
-                Icons.Default.Timer,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = if (isUrgent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        },
-        label = {
-            Text(
-                if (seconds > 0) "Auto-refresh in ${minutes}m ${secs}s" else "Refreshing...",
-                style = MaterialTheme.typography.labelSmall
-            )
-        },
-        colors = SuggestionChipDefaults.suggestionChipColors(
-            containerColor = if (isUrgent)
-                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-            else
-                MaterialTheme.colorScheme.surfaceVariant
-        )
-    )
-}
-
-@Composable
-private fun CopyChip(onCopy: () -> Unit) {
-    SuggestionChip(
-        onClick = onCopy,
-        icon = {
-            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-        },
-        label = { Text("Copy barcode", style = MaterialTheme.typography.labelSmall) }
-    )
-}
-
-@Composable
-private fun ActionButtons(
-    onRefresh: () -> Unit,
-    onGooglePay: () -> Unit,
-    isGooglePayLoading: Boolean
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        OutlinedButton(
-            onClick = onRefresh,
-            modifier = Modifier.weight(1f).height(52.dp),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Refresh")
-        }
-
-        Button(
-            onClick = onGooglePay,
-            enabled = !isGooglePayLoading,
-            modifier = Modifier.weight(1f).height(52.dp),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            if (isGooglePayLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    strokeWidth = 2.dp
-                )
-            } else {
-                Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(20.dp))
+        if (data.isLoading) {
+            Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            }
+        } else if (data.hasData) {
+            Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                StatItem(Icons.Default.DirectionsWalk, "${formatNum(data.stepsToday)}", "Today")
+                StatItem(Icons.Default.Speed, "${data.workoutsThisWeek}", "Workouts")
+                StatItem(Icons.Default.LocalFireDepartment, "${data.caloriesToday.toInt()}", "Cal")
+                data.lastWorkoutName?.let {
+                    StatItem(Icons.Default.FitnessCenter, it.take(8), data.lastWorkoutDate?.take(5) ?: "")
+                }
+                if (data.lastWorkoutName == null) {
+                    StatItem(Icons.Default.Favorite, "OK", "Ready")
+                }
+            }
+        } else if (data.isAvailable && !data.isAuthorized) {
+            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.MonitorHeart, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Text("Save to Wallet")
+                Text("Connect Health", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                FilledTonalButton(onClick = {
+                    vm.getHealthPermissionIntent()?.let { intent ->
+                        permLauncher.launch(Intent.createChooser(intent, "Health Connect"))
+                    }
+                }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Text("Connect", style = MaterialTheme.typography.labelSmall)
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun StatItem(icon: androidx.compose.ui.graphics.vector.ImageVector, value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+        Text(value, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun ControlsRow(state: BarcodeUiState, vm: BarcodeViewModel) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val secs = state.countdownSeconds; val urgent = secs < 60
+        SuggestionChip(onClick = vm::loadBarcode, icon = {
+            Icon(Icons.Default.Refresh, null, Modifier.size(16.dp))
+        }, label = { Text("Refresh", style = MaterialTheme.typography.labelSmall) })
+
+        SuggestionChip(onClick = vm::copyBarcodeToClipboard, icon = {
+            Icon(Icons.Default.ContentCopy, null, Modifier.size(16.dp))
+        }, label = { Text("Copy", style = MaterialTheme.typography.labelSmall) })
+
+        SuggestionChip(onClick = vm::loadGooglePayJwt, enabled = !state.isGooglePayLoading, icon = {
+            if (state.isGooglePayLoading) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+            else Icon(Icons.Default.AccountBalanceWallet, null, Modifier.size(16.dp))
+        }, label = { Text("Wallet", style = MaterialTheme.typography.labelSmall) })
+
+        if (secs > 0) {
+            SuggestionChip(onClick = {},
+                colors = SuggestionChipDefaults.suggestionChipColors(
+                    containerColor = if (urgent) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant),
+                label = {
+                    Text("${secs / 60}m ${secs % 60}s", style = MaterialTheme.typography.labelSmall,
+                        color = if (urgent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            )
         }
     }
 }
 
 @Composable
 private fun ErrorContent(error: String, onRetry: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            Icons.Default.ErrorOutline, contentDescription = null,
-            modifier = Modifier.size(72.dp),
-            tint = MaterialTheme.colorScheme.error
-        )
+    Column(Modifier.fillMaxSize().weight(1f).padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center) {
+        Icon(Icons.Default.ErrorOutline, null, Modifier.size(64.dp), tint = MaterialTheme.colorScheme.error)
+        Spacer(Modifier.height(12.dp))
+        Text(error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
         Spacer(Modifier.height(16.dp))
-        Text(
-            text = error, style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center
-        )
-        Spacer(Modifier.height(24.dp))
-        FilledTonalButton(onClick = onRetry, shape = RoundedCornerShape(16.dp)) {
-            Icon(Icons.Default.Refresh, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text("Retry")
-        }
+        FilledTonalButton(onClick = onRetry) { Text("Retry") }
     }
 }
 
 @Composable
-private fun ShimmerLoading() {
-    val infiniteTransition = rememberInfiniteTransition()
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f, targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse),
-        label = "shimmer"
-    )
-
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 48.dp)) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
-        )
-        Spacer(Modifier.height(16.dp))
-        Box(
-            modifier = Modifier.fillMaxWidth(0.6f).height(24.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
-        )
-        Spacer(Modifier.height(32.dp))
-        CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
-    }
-}
-
-@Composable
-private fun UpdateBanner(
-    version: String,
-    isDownloading: Boolean,
-    progress: Float,
-    onUpdate: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Default.SystemUpdateAlt, contentDescription = null,
-                tint = MaterialTheme.colorScheme.onTertiaryContainer)
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Update v$version available",
-                    style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                if (isDownloading) {
-                    Spacer(Modifier.height(6.dp))
-                    LinearProgressIndicator(progress = { progress },
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)))
-                }
-            }
+private fun UpdateBanner(v: String, downloading: Boolean, progress: Float, onUpdate: () -> Unit) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.SystemUpdateAlt, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
             Spacer(Modifier.width(8.dp))
-            FilledTonalButton(onClick = onUpdate, enabled = !isDownloading) {
-                Text(if (isDownloading) "..." else "Update")
+            Text("v$v available", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (downloading) LinearProgressIndicator({ progress }, Modifier.width(60.dp).height(4.dp).clip(RoundedCornerShape(2.dp)))
+            else FilledTonalButton(onClick = onUpdate, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)) {
+                Text("Get", style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -401,22 +258,13 @@ private fun UpdateBanner(
 
 @Composable
 private fun InstallDialog(onInstall: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Default.Security, contentDescription = null) },
-        title = { Text("Install Update") },
-        text = {
-            Column {
-                Text("Your device may ask you to scan the app before installing. Tap More Details → Install Anyway, then confirm with biometrics or device PIN.")
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "This APK is built from the same source code available on GitHub.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
+    AlertDialog(onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Security, null) },
+        title = { Text("Install") },
+        text = { Text("Tap More Details → Install Anyway, then confirm with biometrics.") },
         confirmButton = { Button(onClick = onInstall) { Text("Install") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Later") } }
     )
 }
+
+private fun formatNum(n: Int): String = if (n >= 1000) "${n / 1000}.${(n % 1000) / 100}k" else n.toString()

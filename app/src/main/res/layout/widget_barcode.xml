@@ -3,7 +3,7 @@
     android:id="@+id/widget_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="12dp"
+    android:padding="8dp"
     android:background="@drawable/widget_bg">
 
     <LinearLayout
@@ -12,19 +12,15 @@
         android:gravity="center"
         android:orientation="vertical"
         android:background="@android:color/white"
-        android:padding="12dp">
+        android:padding="8dp">
 
-        <TextView
-            android:id="@+id/widget_barcode_value"
+        <ImageView
+            android:id="@+id/widget_barcode_image"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:letterSpacing="0.15"
-            android:maxLines="3"
-            android:textColor="@android:color/black"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:typeface="monospace" />
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:scaleType="fitCenter"
+            android:adjustViewBounds="true" />
 
         <TextView
             android:id="@+id/widget_placeholder"
@@ -33,16 +29,16 @@
             android:gravity="center"
             android:text="Open app to load barcode"
             android:textColor="#888888"
-            android:textSize="14sp"
+            android:textSize="12sp"
             android:visibility="gone" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Tap to open Crunch Barcode"
+            android:layout_marginTop="4dp"
+            android:text="Tap to open"
             android:textColor="#AAAAAA"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
 
     </LinearLayout>
 

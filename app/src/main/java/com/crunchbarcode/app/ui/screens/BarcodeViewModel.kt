@@ -13,6 +13,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.crunchbarcode.app.BuildConfig
 import com.crunchbarcode.app.data.repository.CrunchRepository
+import com.crunchbarcode.app.health.HealthConnectManager
+import com.crunchbarcode.app.health.HealthData
 import com.crunchbarcode.app.update.AppUpdate
 import com.crunchbarcode.app.update.UpdateChecker
 import com.crunchbarcode.app.widget.BarcodeWidgetProvider
@@ -47,9 +49,10 @@ data class BarcodeUiState(
     val installPrompt: Boolean = false,
     val installUri: Uri? = null,
     val countdownSeconds: Int = 0,
-    val isAutoRefreshing: Boolean = false,
     val justCopied: Boolean = false,
-    val memberFirstName: String? = null
+    val memberFirstName: String? = null,
+    val healthData: HealthData = HealthData(),
+    val healthLoading: Boolean = false
 )
 
 class BarcodeViewModel(
@@ -62,20 +65,19 @@ class BarcodeViewModel(
 
     private val writer = MultiFormatWriter()
     private val updateChecker = UpdateChecker(BuildConfig.VERSION_NAME)
+    private val healthManager = HealthConnectManager(application)
     private var countdownJob: Job? = null
 
-    private val sessionExpiryMs = 20 * 60 * 1000L
     private val refreshThresholdMs = 5 * 60 * 1000L
 
     init {
         val creds = repository.savedCredentials
         if (creds != null) {
-            _uiState.value = _uiState.value.copy(
-                memberFirstName = creds.firstName
-            )
+            _uiState.value = _uiState.value.copy(memberFirstName = creds.firstName)
         }
         loadBarcode()
         checkForUpdate()
+        loadHealthData()
     }
 
     fun loadBarcode() {
@@ -87,7 +89,6 @@ class BarcodeViewModel(
                     val value = barcodeResp.barcode
                     if (value != null && value.isNotEmpty()) {
                         generateBitmap(value)
-                        BarcodeWidgetProvider.pushBarcodeUpdate(application, value)
                     } else {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
@@ -107,35 +108,27 @@ class BarcodeViewModel(
 
     private suspend fun generateBitmap(value: String) = withContext(Dispatchers.Default) {
         try {
-            val hints = mapOf(
-                EncodeHintType.MARGIN to 0,
-                EncodeHintType.CHARACTER_SET to "ISO-8859-1"
-            )
-            val (bitMatrix, format) = try {
-                Pair(writer.encode(value, BarcodeFormat.QR_CODE, 512, 512, hints), "QR_CODE")
+            val hints = mapOf(EncodeHintType.MARGIN to 0, EncodeHintType.CHARACTER_SET to "ISO-8859-1")
+            val bitMatrix = try {
+                writer.encode(value, BarcodeFormat.QR_CODE, 512, 512, hints)
             } catch (_: Exception) {
-                Pair(writer.encode(value, BarcodeFormat.CODE_128, 1024, 256, hints), "CODE_128")
+                writer.encode(value, BarcodeFormat.CODE_128, 1024, 256, hints)
             }
-            val width = bitMatrix.width
-            val height = bitMatrix.height
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val pixels = IntArray(width * height)
-            for (y in 0 until height) {
-                for (x in 0 until width) {
-                    pixels[y * width + x] = if (bitMatrix[x, y]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
-                }
-            }
-            bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+            val w = bitMatrix.width; val h = bitMatrix.height
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val px = IntArray(w * h)
+            for (y in 0 until h) for (x in 0 until w)
+                px[y * w + x] = if (bitMatrix[x, y]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
+            bmp.setPixels(px, 0, w, 0, 0, w, h)
+
+            BarcodeWidgetProvider.pushBarcodeUpdate(application, bmp)
+
             _uiState.value = _uiState.value.copy(
-                barcodeValue = value,
-                barcodeBitmap = bitmap,
-                isLoading = false,
-                error = null
+                barcodeValue = value, barcodeBitmap = bmp, isLoading = false, error = null
             )
         } catch (e: Exception) {
             _uiState.value = _uiState.value.copy(
-                isLoading = false,
-                error = "Barcode render failed: ${e.localizedMessage}"
+                isLoading = false, error = "Barcode render failed: ${e.localizedMessage}"
             )
         }
     }
@@ -146,11 +139,10 @@ class BarcodeViewModel(
             var remaining = (refreshThresholdMs / 1000).toInt()
             while (isActive && remaining > 0) {
                 _uiState.value = _uiState.value.copy(countdownSeconds = remaining)
-                delay(1000)
-                remaining--
+                delay(1000); remaining--
             }
             if (remaining <= 0) {
-                _uiState.value = _uiState.value.copy(isAutoRefreshing = true)
+                _uiState.value = _uiState.value.copy(countdownSeconds = 0, isUpdateChecking = false)
                 loadBarcode()
             }
         }
@@ -159,42 +151,26 @@ class BarcodeViewModel(
     fun loadGooglePayJwt() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isGooglePayLoading = true)
-            val result = withContext(Dispatchers.IO) { repository.getGooglePayJwt() }
-            result.fold(
-                onSuccess = { jwt ->
-                    _uiState.value = _uiState.value.copy(googlePayJwt = jwt, isGooglePayLoading = false)
-                },
-                onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(
-                        isGooglePayLoading = false,
-                        error = "Google Wallet: ${e.localizedMessage}"
-                    )
-                }
+            withContext(Dispatchers.IO) { repository.getGooglePayJwt() }.fold(
+                onSuccess = { jwt -> _uiState.value = _uiState.value.copy(googlePayJwt = jwt, isGooglePayLoading = false) },
+                onFailure = { e -> _uiState.value = _uiState.value.copy(isGooglePayLoading = false, error = "Google Wallet: ${e.localizedMessage}") }
             )
         }
     }
 
     fun copyBarcodeToClipboard() {
         val value = _uiState.value.barcodeValue ?: return
-        val clipboard = application.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Crunch Barcode", value))
+        (application.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+            .setPrimaryClip(ClipData.newPlainText("Crunch Barcode", value))
         _uiState.value = _uiState.value.copy(justCopied = true)
-        viewModelScope.launch {
-            delay(2000)
-            _uiState.value = _uiState.value.copy(justCopied = false)
-        }
+        viewModelScope.launch { delay(2000); _uiState.value = _uiState.value.copy(justCopied = false) }
     }
 
     private fun checkForUpdate() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isUpdateChecking = true)
             updateChecker.checkForUpdate().fold(
-                onSuccess = { update ->
-                    _uiState.value = _uiState.value.copy(
-                        update = if (update.isNewer) update else null,
-                        isUpdateChecking = false
-                    )
-                },
+                onSuccess = { upd -> _uiState.value = _uiState.value.copy(update = if (upd.isNewer) upd else null, isUpdateChecking = false) },
                 onFailure = { _uiState.value = _uiState.value.copy(isUpdateChecking = false) }
             )
         }
@@ -205,12 +181,8 @@ class BarcodeViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isDownloading = true, downloadProgress = 0f)
             withContext(Dispatchers.IO) { downloadApk(update.downloadUrl) }.fold(
-                onSuccess = { uri ->
-                    _uiState.value = _uiState.value.copy(isDownloading = false, installUri = uri, installPrompt = true)
-                },
-                onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(isDownloading = false, error = "Download failed: ${e.localizedMessage}")
-                }
+                onSuccess = { uri -> _uiState.value = _uiState.value.copy(isDownloading = false, installUri = uri, installPrompt = true) },
+                onFailure = { e -> _uiState.value = _uiState.value.copy(isDownloading = false, error = "Download failed: ${e.localizedMessage}") }
             )
         }
     }
@@ -220,28 +192,17 @@ class BarcodeViewModel(
         dir.listFiles()?.forEach { it.delete() }
         val file = File(dir, "crunch-barcode-update.apk")
         val conn = URL(downloadUrl).openConnection() as HttpURLConnection
-        conn.connectTimeout = 30000
-        conn.readTimeout = 30000
-        conn.connect()
-        val input = conn.inputStream
-        FileOutputStream(file).use { output ->
-            val buffer = ByteArray(8192)
-            var bytesRead: Int
-            var totalRead = 0L
-            val totalSize = conn.contentLengthLong
-            while (input.read(buffer).also { bytesRead = it } != -1) {
-                output.write(buffer, 0, bytesRead)
-                totalRead += bytesRead
-                if (totalSize > 0) {
-                    _uiState.value = _uiState.value.copy(downloadProgress = totalRead.toFloat() / totalSize.toFloat())
-                }
+        conn.connectTimeout = 30000; conn.readTimeout = 30000; conn.connect()
+        FileOutputStream(file).use { out ->
+            val buf = ByteArray(8192); var read: Int; var total = 0L; val size = conn.contentLengthLong
+            while (conn.inputStream.read(buf).also { read = it } != -1) {
+                out.write(buf, 0, read); total += read
+                if (size > 0) _uiState.value = _uiState.value.copy(downloadProgress = total.toFloat() / size.toFloat())
             }
         }
-        input.close()
+        conn.inputStream.close()
         Result.success(FileProvider.getUriForFile(application, "${application.packageName}.fileprovider", file))
-    } catch (e: Exception) {
-        Result.failure(e)
-    }
+    } catch (e: Exception) { Result.failure(e) }
 
     fun launchInstall() {
         val uri = _uiState.value.installUri ?: return
@@ -252,9 +213,17 @@ class BarcodeViewModel(
         })
     }
 
-    fun dismissInstallPrompt() {
-        _uiState.value = _uiState.value.copy(installPrompt = false)
+    fun dismissInstallPrompt() { _uiState.value = _uiState.value.copy(installPrompt = false) }
+
+    fun loadHealthData() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(healthLoading = true)
+            val data = withContext(Dispatchers.IO) { healthManager.loadHealthData() }
+            _uiState.value = _uiState.value.copy(healthData = data, healthLoading = false)
+        }
     }
+
+    fun getHealthPermissionIntent() = healthManager.getPermissionIntent()
 
     fun logout() {
         countdownJob?.cancel()
