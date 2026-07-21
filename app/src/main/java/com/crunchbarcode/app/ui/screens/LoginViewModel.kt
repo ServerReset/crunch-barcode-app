@@ -14,104 +14,98 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.URL
+import javax.net.ssl.HttpsURLConnection
 
 data class LoginUiState(
-    val login: String = "",
-    val password: String = "",
-    val isLoading: Boolean = false,
-    val error: String? = null,
-    val isLoggedIn: Boolean = false,
+    val login: String = "", val password: String = "",
+    val isLoading: Boolean = false, val isTesting: Boolean = false,
+    val error: String? = null, val isLoggedIn: Boolean = false,
     val isPasswordVisible: Boolean = false,
     val serverUrl: String = CrunchApi.BASE_URL,
     val showServerSettings: Boolean = false
 )
 
 class LoginViewModel(
-    private val application: Application,
-    private val repository: CrunchRepository
+    private val app: Application,
+    private val repo: CrunchRepository
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(LoginUiState())
-    val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
-
-    private val prefs = application.getSharedPreferences("login_prefs", Context.MODE_PRIVATE)
+    private val _s = MutableStateFlow(LoginUiState()); val uiState: StateFlow<LoginUiState> = _s.asStateFlow()
+    private val prefs = app.getSharedPreferences("login_prefs", Context.MODE_PRIVATE)
 
     init {
-        val savedUrl = prefs.getString("server_url", CrunchApi.BASE_URL) ?: CrunchApi.BASE_URL
-        if (savedUrl != CrunchApi.BASE_URL) {
-            _uiState.value = _uiState.value.copy(serverUrl = savedUrl)
+        val saved = prefs.getString("server_url", CrunchApi.BASE_URL) ?: CrunchApi.BASE_URL
+        if (saved != CrunchApi.BASE_URL) _s.value = _s.value.copy(serverUrl = saved)
+        if (repo.isLoggedIn) _s.value = _s.value.copy(isLoggedIn = true)
+    }
+
+    fun onLoginChanged(v: String) { _s.value = _s.value.copy(login = v, error = null) }
+    fun onPasswordChanged(v: String) { _s.value = _s.value.copy(password = v, error = null) }
+    fun onPasswordVisibilityToggle() { _s.value = _s.value.copy(isPasswordVisible = !_s.value.isPasswordVisible) }
+    fun onServerUrlChanged(v: String) { _s.value = _s.value.copy(serverUrl = v, error = null) }
+    fun toggleServerSettings() { _s.value = _s.value.copy(showServerSettings = !_s.value.showServerSettings) }
+
+    fun testConnection() {
+        viewModelScope.launch {
+            _s.value = _s.value.copy(isTesting = true, error = null)
+            val url = _s.value.serverUrl.trimEnd('/')
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val conn = URL("$url/np/login").openConnection() as HttpsURLConnection
+                    conn.requestMethod = "POST"
+                    conn.setRequestProperty("Accept", "application/json")
+                    conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                    conn.setRequestProperty("X-NP-API-Version", "1.5")
+                    conn.doOutput = true; conn.connectTimeout = 10000; conn.readTimeout = 10000
+                    conn.connect()
+                    val code = conn.responseCode
+                    "Server responded (HTTP $code)"
+                } catch (e: Exception) {
+                    "Failed: ${e.localizedMessage ?: e.javaClass.simpleName}"
+                }
+            }
+            _s.value = _s.value.copy(isTesting = false, error = result)
         }
-        if (repository.isLoggedIn) {
-            _uiState.value = _uiState.value.copy(isLoggedIn = true)
-        }
-    }
-
-    fun onLoginChanged(value: String) {
-        _uiState.value = _uiState.value.copy(login = value, error = null)
-    }
-
-    fun onPasswordChanged(value: String) {
-        _uiState.value = _uiState.value.copy(password = value, error = null)
-    }
-
-    fun onPasswordVisibilityToggle() {
-        _uiState.value = _uiState.value.copy(isPasswordVisible = !_uiState.value.isPasswordVisible)
-    }
-
-    fun onServerUrlChanged(value: String) {
-        _uiState.value = _uiState.value.copy(serverUrl = value, error = null)
-    }
-
-    fun toggleServerSettings() {
-        _uiState.value = _uiState.value.copy(showServerSettings = !_uiState.value.showServerSettings)
     }
 
     fun login() {
-        val state = _uiState.value
-        if (state.login.isBlank()) {
-            _uiState.value = state.copy(error = "Please enter your email or member ID")
-            return
-        }
-        if (state.password.isBlank()) {
-            _uiState.value = state.copy(error = "Please enter your password")
-            return
-        }
+        val s = _s.value
+        if (s.login.isBlank()) { _s.value = s.copy(error = "Enter your email or member ID"); return }
+        if (s.password.isBlank()) { _s.value = s.copy(error = "Enter your password"); return }
 
-        val url = state.serverUrl.trim().trimEnd('/')
+        val url = s.serverUrl.trim().trimEnd('/')
         prefs.edit().putString("server_url", url).apply()
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            val result = withContext(Dispatchers.IO) { repository.login(state.login.trim(), state.password, url) }
+            _s.value = _s.value.copy(isLoading = true, error = null)
+            val result = withContext(Dispatchers.IO) { repo.login(s.login.trim(), s.password, url) }
             result.fold(
-                onSuccess = {
-                    _uiState.value = _uiState.value.copy(isLoading = false, isLoggedIn = true)
-                },
+                onSuccess = { _s.value = _s.value.copy(isLoading = false, isLoggedIn = true) },
                 onFailure = { e ->
                     val msg = when (e) {
                         is CrunchAuthException -> when {
                             e.httpCode == 401 && e.apiCause == "loginFailureAttemptsExceeded" ->
-                                "Account locked. Too many failed attempts. Try again later."
+                                "Too many attempts. Wait 15-30 min and try again."
                             e.httpCode == 401 && e.apiCause == "userAccountTemporarilyLocked" ->
-                                "Account temporarily locked. Please wait."
+                                "Account locked. Wait a few minutes."
                             e.httpCode == 401 -> "Invalid email or password."
-                            e.httpCode == 400 -> "Please check your information and try again."
-                            e.httpCode == 403 -> "Account requires migration. Contact support."
-                            else -> "Login failed (${e.httpCode}): ${e.apiMessage}"
+                            e.httpCode == 400 -> "Check your information and try again."
+                            e.httpCode == 403 -> "Account requires migration. Contact Crunch support."
+                            e.httpCode == 404 -> "Account not found. Wrong server URL?"
+                            else -> "Server error (${e.httpCode})"
                         }
-                        is java.net.UnknownHostException -> "No internet connection."
-                        is java.net.SocketTimeoutException -> "Connection timed out."
-                        else -> e.localizedMessage ?: "Login failed. Check your server URL or credentials."
+                        is java.net.UnknownHostException -> "Can't reach server. Check URL and network."
+                        is java.net.SocketTimeoutException -> "Connection timed out. Wrong server URL?"
+                        else -> e.localizedMessage ?: "Login failed. Try a different server URL."
                     }
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = msg)
+                    _s.value = _s.value.copy(isLoading = false, error = msg)
                 }
             )
         }
     }
 
-    class Factory(private val application: Application, private val repository: CrunchRepository) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            LoginViewModel(application, repository) as T
+    class Factory(private val a: Application, private val r: CrunchRepository) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST") override fun <T : ViewModel> create(c: Class<T>): T = LoginViewModel(a, r) as T
     }
 }

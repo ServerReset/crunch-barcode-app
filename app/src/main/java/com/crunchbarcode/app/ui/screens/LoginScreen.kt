@@ -190,9 +190,18 @@ fun LoginScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(4.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        ServerPresetChip("US", CrunchApi.BASE_URL, state.serverUrl, viewModel::onServerUrlChanged)
-                        ServerPresetChip("Canada", "https://vollgas.netpulse.com", state.serverUrl, viewModel::onServerUrlChanged)
-                        ServerPresetChip("Fallback", "https://api.netpulse.com", state.serverUrl, viewModel::onServerUrlChanged)
+                        ServerPresetChip("🇺🇸 US", CrunchApi.BASE_URL, state.serverUrl, viewModel::onServerUrlChanged)
+                        ServerPresetChip("🇨🇦 Canada", "https://vollgas.netpulse.com", state.serverUrl, viewModel::onServerUrlChanged)
+                        ServerPresetChip("🌐 Fallback", "https://api.netpulse.com", state.serverUrl, viewModel::onServerUrlChanged)
+                        ServerPresetChip("⚡ eGym", "https://mobile-api.int.api.egym.com", state.serverUrl, viewModel::onServerUrlChanged)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { viewModel.testConnection() }, enabled = !state.isTesting,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                            if (state.isTesting) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                            else Text("Test", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
             }
