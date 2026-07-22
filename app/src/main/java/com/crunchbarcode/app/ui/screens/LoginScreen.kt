@@ -44,6 +44,7 @@ private fun ServerPresetChip(label: String, url: String, currentUrl: String, onS
 @Composable
 fun LoginScreen(
     viewModel: LoginViewModel,
+    onWebLogin: () -> Unit = {},
     onLoginSuccess: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -203,6 +204,14 @@ fun LoginScreen(
                             else Text("Test", style = MaterialTheme.typography.labelSmall)
                         }
                     }
+                }
+            }
+
+            if (state.error != null && !state.isLoading) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onWebLogin, modifier = Modifier.fillMaxWidth().height(44.dp),
+                    shape = RoundedCornerShape(16.dp)) {
+                    Text("Web Login (eGym SSO)", style = MaterialTheme.typography.labelMedium)
                 }
             }
 

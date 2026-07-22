@@ -25,6 +25,7 @@ import com.crunchbarcode.app.ui.screens.BarcodeScreen
 import com.crunchbarcode.app.ui.screens.BarcodeViewModel
 import com.crunchbarcode.app.ui.screens.LoginScreen
 import com.crunchbarcode.app.ui.screens.LoginViewModel
+import com.crunchbarcode.app.ui.screens.WebLoginScreen
 import com.crunchbarcode.app.ui.theme.CrunchBarcodeTheme
 
 class MainActivity : FragmentActivity() {
@@ -46,7 +47,16 @@ class MainActivity : FragmentActivity() {
                         NavHost(navController, "login") {
                             composable("login") {
                                 val vm: LoginViewModel = viewModel(factory = LoginViewModel.Factory(application, app.repository))
-                                LoginScreen(vm) { navController.navigate("barcode") { popUpTo("login") { inclusive = true } } }
+                                LoginScreen(vm, onWebLogin = { navController.navigate("weblogin") }) {
+                                    navController.navigate("barcode") { popUpTo("login") { inclusive = true } }
+                                }
+                            }
+                            composable("weblogin") {
+                                val vm: LoginViewModel = viewModel(factory = LoginViewModel.Factory(application, app.repository))
+                                WebLoginScreen(
+                                    onAuthCode = { code -> vm.webLogin(code); navController.navigate("barcode") { popUpTo("login") { inclusive = true } } },
+                                    onBack = { navController.popBackStack() }
+                                )
                             }
                             composable("barcode") {
                                 val vm: BarcodeViewModel = viewModel(factory = BarcodeViewModel.Factory(application, app.repository))

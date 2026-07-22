@@ -66,6 +66,23 @@ class CrunchApi private constructor() {
         return tryLogin(user, pass, ApiConfig(BASE_URL, "/np/login", "login"))
     }
 
+    fun oauth2Login(authCode: String): Result<LoginResponse> = try {
+        val base = BASE_URL
+        val resp = client.newCall(Request.Builder().url("$base/np/exerciser/oauth2/login")
+            .post(FormBody.Builder().add("authCode", authCode).add("redirectUrl", "crunchbarcode://oauth2")
+                .add("guestUuid", "").add("referrerId", "").add("locale", "en").build()).build()).execute()
+        val code = resp.code; val body = resp.body?.string() ?: ""
+        if (code == 200) {
+            val json = JSONObject(body)
+            val uuid = json.optString("uuid", "")
+            if (uuid.isEmpty()) Result.failure(Exception("Missing uuid"))
+            else Result.success(LoginResponse.fromJson(json, sessionId ?: ""))
+        } else {
+            val msg = try { JSONObject(body).optString("message", "") } catch (_: Exception) { "" }
+            Result.failure(Exception("OAuth2 login failed: $code $msg"))
+        }
+    } catch (e: Exception) { Result.failure(e) }
+
     fun relogin(): Result<LoginResponse> {
         val u = savedUser ?: return Result.failure(Exception("No saved creds"))
         val p = savedPass ?: return Result.failure(Exception("No saved creds"))

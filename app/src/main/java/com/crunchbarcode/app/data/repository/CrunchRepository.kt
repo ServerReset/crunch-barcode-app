@@ -43,6 +43,15 @@ class CrunchRepository private constructor(ctx: Context) {
 
     val isLoggedIn: Boolean get() = savedCredentials != null
 
+    fun oauth2Login(authCode: String): Result<LoginResponse> {
+        val r = api.oauth2Login(authCode)
+        if (r.isSuccess) {
+            val lr = r.getOrThrow()
+            savedCredentials = UserCredentials("oauth2_${authCode.take(8)}", "", lr.uuid, lr.sessionId, lr.firstName, lr.lastName)
+        }
+        return r
+    }
+
     fun login(user: String, pass: String): Result<LoginResponse> {
         val r = api.login(user, pass)
         if (r.isSuccess) {

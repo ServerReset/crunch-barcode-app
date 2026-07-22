@@ -57,6 +57,15 @@ class LoginViewModel(app: Application, private val repo: CrunchRepository) : Vie
         _s.value = _s.value.copy(isTesting = false, error = "Test result: $result")
     }}
 
+    fun webLogin(code: String) { viewModelScope.launch {
+        _s.value = _s.value.copy(isLoading = true, error = null)
+        val result = withContext(Dispatchers.IO) { repo.oauth2Login(code) }
+        result.fold(
+            onSuccess = { _s.value = _s.value.copy(isLoading = false, isLoggedIn = true) },
+            onFailure = { _s.value = _s.value.copy(isLoading = false, error = "Web login failed: ${it.localizedMessage ?: "Try direct login instead"}") }
+        )
+    }}
+
     fun login() {
         val s = _s.value
         if (s.login.isBlank()) { _s.value = s.copy(error = "Enter your email or member ID"); return }
