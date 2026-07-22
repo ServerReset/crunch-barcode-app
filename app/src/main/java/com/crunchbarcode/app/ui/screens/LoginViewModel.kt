@@ -81,16 +81,12 @@ class LoginViewModel(app: Application, private val repo: CrunchRepository) : Vie
                 onFailure = { e ->
                     val msg = when (e) {
                         is CrunchAuthException -> {
-                            val hint = when {
-                                e.httpCode == 401 && e.apiCause.contains("locked", true) ->
-                                    "Account locked. Wait 15-30 min."
-                                e.httpCode == 401 -> "Invalid email or password. Try a different server URL (tap Server)."
-                                e.httpCode == 400 -> "Check your information."
-                                e.httpCode == 403 -> "Account needs migration. Contact Crunch."
-                                e.httpCode == 404 -> "Wrong server URL. Try another preset."
-                                else -> "Server: HTTP ${e.httpCode}. Try a different server URL."
+                            val resp = if (e.apiMessage.isNotEmpty()) " (${e.apiMessage.take(80)})" else ""
+                            when (e.httpCode) {
+                                401 -> "Invalid credentials. Try a different server URL.$resp"
+                                403 -> "Access denied. Try Web Login button below.$resp"
+                                else -> "HTTP ${e.httpCode}$resp"
                             }
-                            "$hint (${e.apiMessage.take(60)})"
                         }
                         is java.net.UnknownHostException -> "Server not found. Wrong URL?"
                         is java.net.SocketTimeoutException -> "Server timed out. Wrong URL?"

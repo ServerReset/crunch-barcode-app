@@ -13,6 +13,7 @@ class CrunchApi private constructor() {
 
     companion object {
         const val BASE_URL = "https://crunch-fitness-container.netpulse.com"
+        private val deviceUid = UUID.randomUUID().toString().take(16)
         private val COMBOS = listOf(
             ApiConfig(BASE_URL, "/np/login", "login"),
             ApiConfig(BASE_URL, "/np/exerciser/login", "login"),
@@ -51,7 +52,7 @@ class CrunchApi private constructor() {
                 .addHeader("X-NP-APP-Version", "1")
                 .addHeader("X-NP-User-Agent",
                     "clientType=MOBILE_DEVICE; devicePlatform=ANDROID; " +
-                    "deviceUid=${UUID.randomUUID()}::emulator; " +
+                    "deviceUid=$deviceUid::${android.os.Build.MODEL}; " +
                     "applicationName=Crunch; applicationVersion=5.15.2; applicationVersionCode=559")
                 .build())
         }
