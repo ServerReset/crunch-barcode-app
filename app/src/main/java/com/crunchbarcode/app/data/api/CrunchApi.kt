@@ -15,11 +15,15 @@ class CrunchApi private constructor() {
         const val BASE_URL = "https://crunch-fitness-container.netpulse.com"
         private val COMBOS = listOf(
             ApiConfig(BASE_URL, "/np/login", "login"),
+            ApiConfig(BASE_URL, "/np/exerciser/login", "login"),
             ApiConfig(BASE_URL, "/np/exerciser/login", "username"),
             ApiConfig("https://vollgas.netpulse.com", "/np/login", "login"),
+            ApiConfig("https://vollgas.netpulse.com", "/np/exerciser/login", "login"),
             ApiConfig("https://vollgas.netpulse.com", "/np/exerciser/login", "username"),
             ApiConfig("https://api.netpulse.com", "/np/login", "login"),
-            ApiConfig("https://mobile-api.int.api.egym.com", "/np/login", "login"),
+            ApiConfig("https://api.netpulse.com", "/np/exerciser/login", "login"),
+            ApiConfig("https://mobile-api.int.api.egym.com", "/np/exerciser/login", "login"),
+            ApiConfig("https://mobile-api.int.api.egym.com", "/np/exerciser/login", "username"),
         )
         @Volatile private var instance: CrunchApi? = null
         fun get() = instance ?: synchronized(this) { CrunchApi().also { instance = it } }
